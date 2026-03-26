@@ -1,4 +1,4 @@
-![logo-sm](https://github.com/user-attachments/assets/e467def4-0d59-4dd8-8908-bcdd7af1efbc)
+![logo-sm](https://raw.githubusercontent.com/djshaji/opiqo-windows/refs/heads/main/logo-sm.jpg)
 
 # Opiqo LV2 plugin host for Windows
 This project is a Windows port of the Opiqo LV2 plugin host, which allows users to load and manage LV2 audio plugins on the Windows platform. The application provides a user-friendly interface for controlling plugin parameters, managing presets, and recording audio output.
