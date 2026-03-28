@@ -1,0 +1,10 @@
+prefix=/mnt/sda/djshaji/projects/opiqo-win32
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: Lilv
+Description: Library for hosting LV2 plugins
+Version: 0.26.5
+Requires: lv2 >=  1.18.2, serd-0 >=  0.30.10, sord-0 >=  0.16.20, sratom-0 >=  0.6.10, zix-0 >=  0.6.0
+Libs: -L${libdir} -llilv-0 -ldl -lm
+Cflags: -I${includedir}/lilv-0 -DLILV_STATIC

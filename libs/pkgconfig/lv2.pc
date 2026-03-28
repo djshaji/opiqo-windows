@@ -1,0 +1,7 @@
+prefix=/mnt/sda/djshaji/projects/opiqo-win32
+includedir=${prefix}/include
+
+Name: LV2
+Description: LV2 audio plugin specification
+Version: 1.18.10
+Cflags: -I${includedir}

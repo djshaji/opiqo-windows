@@ -1,0 +1,23 @@
+002c:fixme:winediag:loader_init wine-staging 11.0 is a testing version containing experimental patches.
+002c:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+MESA-INTEL: warning: Haswell Vulkan support is incomplete
+MESA-INTEL: warning: Haswell Vulkan support is incomplete
+0024:err:module:import_dll Library libopus-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libopusenc-0.dll") not found
+0024:err:module:import_dll Library libopusenc-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libFLAC-12.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libsndfile.dll") not found
+0024:err:module:import_dll Library libogg-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libsndfile.dll") not found
+0024:err:module:import_dll Library libopus-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libsndfile.dll") not found
+0024:err:module:import_dll Library libvorbis-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libsndfile.dll") not found
+0024:err:module:import_dll Library libvorbisenc-2.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\libsndfile.dll") not found
+0024:err:module:import_dll Library libsndfile.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libFLAC-12.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libdl.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libgcc_s_seh-1.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libogg-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libwinpthread-1.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libstdc++-6.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libvorbis-0.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:import_dll Library libvorbisenc-2.dll (which is needed by L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe") not found
+0024:err:module:loader_init Importing dlls for L"Z:\\home\\djshaji\\projects\\opiqo-windows\\bin\\opiqo.exe" failed, status c0000135
+011c:fixme:winediag:loader_init wine-staging 11.0 is a testing version containing experimental patches.
+011c:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.

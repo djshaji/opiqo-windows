@@ -1,0 +1,10 @@
+prefix=/mnt/sda/djshaji/projects/opiqo-win32
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: Sord
+Description: Lightweight C library for storing RDF in memory
+Version: 0.16.22
+Requires: zix-0 >=  0.4.0, serd-0 >=  0.30.10
+Libs: -L${libdir} -lsord-0 -lm
+Cflags: -I${includedir}/sord-0 -DSORD_STATIC

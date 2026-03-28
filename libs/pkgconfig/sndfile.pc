@@ -1,0 +1,13 @@
+prefix=/mnt/sda/djshaji/projects/opiqo-win32
+exec_prefix=${prefix}
+libdir=/mnt/sda/djshaji/projects/opiqo-win32/lib
+includedir=/mnt/sda/djshaji/projects/opiqo-win32/include
+
+Name: sndfile
+Description: A library for reading and writing audio files
+Requires:
+Requires.private: flac ogg vorbis vorbisenc opus 
+Version: 1.2.2
+Libs: -L${libdir} -lsndfile
+Libs.private: 
+Cflags: -I${includedir}

@@ -1,0 +1,9 @@
+prefix=/mnt/sda/djshaji/projects/opiqo-win32
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: Zix
+Description: Lightweight C library of portability wrappers and data structures
+Version: 0.8.1
+Libs: -L${libdir} -lzix-0 -pthread
+Cflags: -I${includedir}/zix-0 -pthread -DZIX_STATIC
