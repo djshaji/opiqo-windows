@@ -14,6 +14,9 @@
  * limitations under the License.
  *
  */
+
+#include <stdio.h>
+
 #ifndef __SAMPLE_ANDROID_DEBUG_H__
 #define __SAMPLE_ANDROID_DEBUG_H__
 

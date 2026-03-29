@@ -1,2 +1,7 @@
 *.o
 bin/lv2/
+build-windows/
+CMakeFiles/
+build-cmake-check/ 
+build-cmake-host-check/
+build-windows/

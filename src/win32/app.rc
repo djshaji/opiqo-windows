@@ -1,0 +1,16 @@
+#include "resource.h"
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "File"
+    BEGIN
+        MENUITEM "Export Preset", IDM_FILE_EXPORT_PRESET
+        MENUITEM "Import Preset", IDM_FILE_IMPORT_PRESET
+        MENUITEM SEPARATOR
+        MENUITEM "Exit", IDM_FILE_EXIT
+    END
+    POPUP "Settings"
+    BEGIN
+        MENUITEM "Open Settings", IDM_SETTINGS_OPEN
+    END
+END

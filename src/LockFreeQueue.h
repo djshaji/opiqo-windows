@@ -30,6 +30,7 @@
 #include "logging_macros.h"
 #include <unistd.h>
 #include "AudioBuffer.h"
+#include <cstdlib>
 // #include <jni.h>
 //#include "Engine.h"
 

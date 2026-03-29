@@ -1,0 +1,41 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 16,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-default",
+      "displayName": "Windows MinGW (default)",
+      "description": "Default Windows cross-compile configuration for Linux hosts",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-windows",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Windows",
+        "CMAKE_C_COMPILER": "x86_64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "displayName": "Build Default Target",
+      "configurePreset": "windows-default",
+      "targets": [
+        "default"
+      ]
+    },
+    {
+      "name": "opiqo",
+      "displayName": "Build Opiqo",
+      "configurePreset": "windows-default",
+      "targets": [
+        "opiqo"
+      ]
+    }
+  ]
+}
