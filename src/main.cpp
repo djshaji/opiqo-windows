@@ -1,17 +1,24 @@
 #include "LiveEffectEngine.h"
-
-#ifdef _WIN32
 #include <windows.h>
-#endif
+#include <filesystem>
+#include <libloaderapi.h>
 
 int main() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
+    std::filesystem::current_path(exeDir);
+    
     LiveEffectEngine engine;
     engine.initLV2();
+    std::string cwd = std::filesystem::current_path().string();
+    engine.initPlugins(cwd + "\\lv2");
+    std::string pluginInfo = engine.getAvailablePlugins();
+    
     return 0;
 }
 
-#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int);
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     return main();
 }
-#endif

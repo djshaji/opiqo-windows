@@ -233,45 +233,45 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
 
         pluginCount++;
 //        LOGD("[plugin] %s\n", lilv_node_as_uri(lilv_plugin_get_uri(p)));
-        json pluginInfo = {
+        json info = {
                 {"name", lilv_node_as_string(lilv_plugin_get_name(p))},
                 {"uri", lilv_node_as_string(lilv_plugin_get_uri(p))},
                 {"author", lilv_node_as_string(lilv_plugin_get_author_name(p))},
                 {"ports", lilv_plugin_get_num_ports(p)}};
 
-        pluginInfo["port"] = {};
+        info["port"] = {};
         for (int index = 0 ; index < lilv_plugin_get_num_ports(p); index++) {
             const LilvPort* port = lilv_plugin_get_port_by_index(p, index);
 //            LOGD ("[%s] Port %d: %s\n", lilv_node_as_string(lilv_plugin_get_name(p)),
 //                  index, lilv_node_as_string(lilv_port_get_symbol(p, port)));
-            pluginInfo ["port"][index] = {};
-            pluginInfo ["port"][index]["index"] = index ;
-            pluginInfo ["port"][index]["name"] = lilv_node_as_string(lilv_port_get_name(p, port));
+            info ["port"][index] = {};
+            info ["port"][index]["index"] = index ;
+            info ["port"][index]["name"] = lilv_node_as_string(lilv_port_get_name(p, port));
             if (lilv_port_is_a(p, port, audio_class_)) {
 //                LOGD("[%s] Port %d is an audio port\n", lilv_node_as_string(lilv_plugin_get_name(p)), index);
-                pluginInfo["port"][index]["type"] = "audio";
+                info["port"][index]["type"] = "audio";
             }
             else if (lilv_port_is_a(p, port, control_class_) &&
                     lilv_port_is_a(p, port, input_class_)) {
-                pluginInfo["port"][index]["type"] = "control";
+                info["port"][index]["type"] = "control";
 
                 if (lilv_port_has_property(p, port, toggle_class_)) {
-                    pluginInfo["port"][index]["type"] = "toggled";
+                    info["port"][index]["type"] = "toggled";
                 }
 
                 if (lilv_port_has_property(p, port, enum_class_)) {
-                    pluginInfo["port"][index]["type"] = "dropdown";
+                    info["port"][index]["type"] = "dropdown";
 
                     // Query Scale Points (Labels for the enum)
                     LilvScalePoints* points = lilv_port_get_scale_points(p, port);
-                    pluginInfo["port"][index]["options"] = json::array();
+                    info["port"][index]["options"] = json::array();
 
                     LILV_FOREACH(scale_points, s, points) {
                         const LilvScalePoint* point = lilv_scale_points_get(points, s);
                         json sp;
                         sp["label"] = lilv_node_as_string(lilv_scale_point_get_label(point));
                         sp["value"] = lilv_node_as_float(lilv_scale_point_get_value(point));
-                        pluginInfo["port"][index]["options"].push_back(sp);
+                        info["port"][index]["options"].push_back(sp);
                     }
                 }
 //                LOGD("[%s] Port %d is a control port\n", lilv_node_as_string(lilv_plugin_get_name(p)), index);
@@ -281,13 +281,13 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
                 lilv_port_get_range(p, port, reinterpret_cast<LilvNode **>(&def),
                                     reinterpret_cast<LilvNode **>(&min),
                                     reinterpret_cast<LilvNode **>(&max));
-                pluginInfo["port"][index]["min"] = lilv_node_as_float(min) ;
-                pluginInfo["port"][index]["max"] = lilv_node_as_string(max);
-                pluginInfo["port"][index]["default"] = lilv_node_as_string(def);
+                info["port"][index]["min"] = lilv_node_as_float(min) ;
+                info["port"][index]["max"] = lilv_node_as_string(max);
+                info["port"][index]["default"] = lilv_node_as_string(def);
 
             }
             else if (lilv_port_is_a(p, port, atom_class_)) {
-                pluginInfo["port"][index]["type"] = "atom";
+                info["port"][index]["type"] = "atom";
 //                LOGD ("[%s] Port %d is an atom port\n", lilv_node_as_string(lilv_plugin_get_name(p)), index);
             } else {
                 LOGW ("[%s] Port %d (%s) is of unknown type\n", lilv_node_as_string(lilv_plugin_get_name(p)), index, lilv_node_as_string(lilv_port_get_symbol(p, port)));
@@ -335,9 +335,9 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
             writableParams [lilv_node_as_string(param)] = info ;
         }
 
-        pluginInfo [pluginInfo["uri"]] = pluginInfo;
+        pluginInfo [info["uri"].get<std::string>()] = info;
         if (hasWritableParams) {
-            pluginInfo [pluginInfo["uri"]]["writableParams"] = writableParams;
+            pluginInfo [info["uri"].get<std::string>()]["writableParams"] = writableParams;
         }
     }
 

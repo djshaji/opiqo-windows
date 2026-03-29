@@ -11,15 +11,15 @@
 # Plan for Opiqo LV2 plugin host for Windows
 ## User Interface
 - Use win32 API
-- Tabbed interface for 4 plugin slots
+- Interface for 4 plugin slots
 - Each plugin slot has:
   - A plus button to add a plugin, click to open plugin dialog
   - A bypass toggle
   - A delete button
   - Dynamically generated sliders for each plugin parameter
-- Control bar with Power toggle, Gain slider, and Record button
+- 300px Control bar at the bottom with Power toggle, Gain slider, and Record button
 - Dropdown menu for input / output device selection
-- Format and quality selection for recording
+- Drop down Format and quality selection for recording
 - Status bar for messages and errors, and display current sample rate and block size
 - Settings dialog for configuring audio settings and application preferences
   - Export / import presets functionality
