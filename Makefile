@@ -238,6 +238,30 @@ src/main_win32.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/main_win32.cpp.s
 .PHONY : src/main_win32.cpp.s
 
+src/win32/AppSettings.obj: src/win32/AppSettings.cpp.obj
+.PHONY : src/win32/AppSettings.obj
+
+# target to build an object file
+src/win32/AppSettings.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/AppSettings.cpp.obj
+.PHONY : src/win32/AppSettings.cpp.obj
+
+src/win32/AppSettings.i: src/win32/AppSettings.cpp.i
+.PHONY : src/win32/AppSettings.i
+
+# target to preprocess a source file
+src/win32/AppSettings.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/AppSettings.cpp.i
+.PHONY : src/win32/AppSettings.cpp.i
+
+src/win32/AppSettings.s: src/win32/AppSettings.cpp.s
+.PHONY : src/win32/AppSettings.s
+
+# target to generate assembly for a file
+src/win32/AppSettings.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/AppSettings.cpp.s
+.PHONY : src/win32/AppSettings.cpp.s
+
 src/win32/AudioEngine.obj: src/win32/AudioEngine.cpp.obj
 .PHONY : src/win32/AudioEngine.obj
 
@@ -436,6 +460,9 @@ help:
 	@echo "... src/main_win32.obj"
 	@echo "... src/main_win32.i"
 	@echo "... src/main_win32.s"
+	@echo "... src/win32/AppSettings.obj"
+	@echo "... src/win32/AppSettings.i"
+	@echo "... src/win32/AppSettings.s"
 	@echo "... src/win32/AudioEngine.obj"
 	@echo "... src/win32/AudioEngine.i"
 	@echo "... src/win32/AudioEngine.s"

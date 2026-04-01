@@ -38,6 +38,7 @@ set(ENGINE_SOURCES
 )
 
 set(WIN32_UI_SOURCES
+    src/win32/AppSettings.cpp
     src/win32/MainWindow.cpp
     src/win32/PluginSlot.cpp
     src/win32/PluginDialog.cpp
