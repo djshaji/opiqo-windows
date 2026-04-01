@@ -62,6 +62,21 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
         SendMessageA(formatCombo_, CB_SETCURSEL, 0, 0);
     }
 
+    // Quality dropdown (High / Medium / Low) — hidden by default (WAV selected).
+    qualityCombo_ = CreateWindowExA(
+        0, "COMBOBOX", nullptr,
+        WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
+        416, 4, 90, 120,
+        hwnd_,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_QUALITY_COMBO)),
+        hInst, nullptr);
+    if (qualityCombo_) {
+        SendMessageA(qualityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("High"));
+        SendMessageA(qualityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Medium"));
+        SendMessageA(qualityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Low"));
+        SendMessageA(qualityCombo_, CB_SETCURSEL, 0, 0);
+    }
+
     return powerButton_ != nullptr;
 }
 
@@ -72,9 +87,11 @@ void ControlBar::setPowerState(bool on) {
 }
 
 void ControlBar::setRecordState(bool on) {
-    if (recordButton_)
+    if (recordButton_) {
         SendMessage(recordButton_, BM_SETCHECK,
                     on ? BST_CHECKED : BST_UNCHECKED, 0);
+        SetWindowTextA(recordButton_, on ? "\u25a0 Stop" : "\u25cf Record");
+    }
 }
 
 int ControlBar::gainValue() const {
@@ -91,6 +108,17 @@ int ControlBar::formatIndex() const {
 void ControlBar::setFormatIndex(int index) {
     if (formatCombo_)
         SendMessage(formatCombo_, CB_SETCURSEL, static_cast<WPARAM>(index), 0);
+}
+
+int ControlBar::qualityIndex() const {
+    if (!qualityCombo_) return 0;
+    int sel = static_cast<int>(SendMessage(qualityCombo_, CB_GETCURSEL, 0, 0));
+    return (sel == CB_ERR) ? 0 : sel;
+}
+
+void ControlBar::showQualityCombo(bool show) {
+    if (qualityCombo_)
+        ShowWindow(qualityCombo_, show ? SW_SHOW : SW_HIDE);
 }
 
 void ControlBar::resize(const RECT& bounds) {

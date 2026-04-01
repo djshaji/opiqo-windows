@@ -23,6 +23,12 @@ public:
     // Selects the format combo entry matching the given index.
     void setFormatIndex(int index);
 
+    // Returns the currently selected quality index (0=High, 1=Medium, 2=Low).
+    int qualityIndex() const;
+
+    // Shows or hides the quality combo (shown for lossy formats only).
+    void showQualityCombo(bool show);
+
     // Repositions and resizes all child controls to fit new bounds.
     void resize(const RECT& bounds);
 
@@ -32,4 +38,5 @@ private:
     HWND gainSlider_   = nullptr;
     HWND recordButton_ = nullptr;
     HWND formatCombo_  = nullptr;
+    HWND qualityCombo_ = nullptr;
 };

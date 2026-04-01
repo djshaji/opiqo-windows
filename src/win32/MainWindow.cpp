@@ -1,7 +1,11 @@
 #include "MainWindow.h"
 
 #include <commctrl.h>
+#include <fcntl.h>
+#include <io.h>
+#include <string>
 #include "resource.h"
+#include "../FileWriter.h"
 
 // Posted from the COM notification thread; handled on the UI thread.
 static constexpr UINT WM_OPIQO_DEVICE_CHANGE = WM_APP + 1;
@@ -109,6 +113,8 @@ bool MainWindow::create(int nCmdShow) {
     {
         RECT dummy = {};
         controlBar_.create(hwnd_, dummy);
+        controlBar_.setFormatIndex(settings_.recordFormat);
+        controlBar_.showQualityCombo(settings_.recordFormat != 0);
         for (int i = 0; i < 4; ++i)
             slots_[i].create(hwnd_, i, dummy);
     }
@@ -271,6 +277,76 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                         audioEngine_.stop();
                         // stop() is synchronous — state is Off when it returns.
                         controlBar_.setPowerState(false);
+                    }
+                    return 0;
+                }
+                case IDC_RECORD_TOGGLE: {
+                    bool wantRecord = (IsDlgButtonChecked(controlBar_.hwnd(),
+                                                          IDC_RECORD_TOGGLE) == BST_CHECKED);
+                    if (wantRecord) {
+                        // Build per-format filter string and default extension.
+                        static const FileType formatMap[] = {
+                            FILE_TYPE_WAV, FILE_TYPE_MP3, FILE_TYPE_OGG
+                        };
+                        int fmtIdx = controlBar_.formatIndex();
+                        const char* filter    = "WAV Files\0*.wav\0All Files\0*.*\0\0";
+                        const char* defExt    = "wav";
+                        if (fmtIdx == 1) { filter = "MP3 Files\0*.mp3\0All Files\0*.*\0\0"; defExt = "mp3"; }
+                        else if (fmtIdx == 2) { filter = "OGG Files\0*.ogg\0All Files\0*.*\0\0"; defExt = "ogg"; }
+
+                        char filePath[MAX_PATH] = {};
+                        OPENFILENAMEA ofn = {};
+                        ofn.lStructSize  = sizeof(ofn);
+                        ofn.hwndOwner    = hwnd_;
+                        ofn.lpstrFilter  = filter;
+                        ofn.lpstrFile    = filePath;
+                        ofn.nMaxFile     = MAX_PATH;
+                        ofn.lpstrDefExt  = defExt;
+                        ofn.Flags        = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+
+                        if (!GetSaveFileNameA(&ofn)) {
+                            // User cancelled — revert button state.
+                            controlBar_.setRecordState(false);
+                            return 0;
+                        }
+
+                        int fd = _open(filePath, _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY,
+                                       _S_IREAD | _S_IWRITE);
+                        if (fd < 0) {
+                            controlBar_.setRecordState(false);
+                            MessageBoxA(hwnd_, "Failed to open output file.",
+                                        "Opiqo — Record Error", MB_OK | MB_ICONERROR);
+                            return 0;
+                        }
+
+                        int quality = controlBar_.qualityIndex();
+                        bool ok = liveEngine_.startRecording(fd, static_cast<int>(formatMap[fmtIdx]), quality);
+                        if (!ok) {
+                            _close(fd);
+                            controlBar_.setRecordState(false);
+                            MessageBoxA(hwnd_, "Failed to start recording.",
+                                        "Opiqo — Record Error", MB_OK | MB_ICONERROR);
+                            return 0;
+                        }
+
+                        recordingFd_ = fd;
+                        settings_.recordFormat  = fmtIdx;
+                        settings_.recordQuality = quality;
+                    } else {
+                        liveEngine_.stopRecording();
+                        if (recordingFd_ >= 0) {
+                            _close(recordingFd_);
+                            recordingFd_ = -1;
+                        }
+                        controlBar_.setRecordState(false);
+                    }
+                    return 0;
+                }
+                case IDC_FORMAT_COMBO: {
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        int fmtIdx = controlBar_.formatIndex();
+                        settings_.recordFormat = fmtIdx;
+                        controlBar_.showQualityCombo(fmtIdx != 0);
                     }
                     return 0;
                 }

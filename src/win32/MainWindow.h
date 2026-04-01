@@ -44,4 +44,5 @@ private:
     ControlBar                         controlBar_;
     PluginSlot                         slots_[4];
     bool                               slotEnabled_[4] = { true, true, true, true };
+    int                                recordingFd_    = -1;
 };

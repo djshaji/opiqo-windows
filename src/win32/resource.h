@@ -14,6 +14,7 @@
 #define IDC_GAIN_SLIDER   50101
 #define IDC_RECORD_TOGGLE 50102
 #define IDC_FORMAT_COMBO  50103
+#define IDC_QUALITY_COMBO 50104
 
 // Per-slot controls: base + slotIndex (0-3)
 #define IDC_SLOT_ADD_BASE    51000
