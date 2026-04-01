@@ -58,8 +58,8 @@ bool MainWindow::create(int nCmdShow) {
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        800,
-        600,
+        kMinWidth,
+        kMinHeight,
         nullptr,
         LoadMenuA(instance_, MAKEINTRESOURCEA(IDR_MAINMENU)),
         instance_,
@@ -95,9 +95,11 @@ bool MainWindow::create(int nCmdShow) {
     audioEngine_.setEngine(&liveEngine_);
 
     // Status bar along the top of the client area.
+    // NOTE: STATUSCLASSNAME auto-docks to the bottom when sent WM_SIZE;
+    // doLayout() repositions it to the top via SetWindowPos.
     statusBar_ = CreateWindowExA(
         0, STATUSCLASSNAME, nullptr,
-        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0,
         hwnd_, nullptr, instance_, nullptr);
     if (statusBar_) {
@@ -145,30 +147,33 @@ void MainWindow::doLayout() {
     int totalW = rc.right;
     int totalH = rc.bottom;
 
-    // Status bar self-sizes when sent WM_SIZE.
-    if (statusBar_)
-        SendMessage(statusBar_, WM_SIZE, 0, 0);
-
-    // Determine actual status bar height from its window rect.
+    // Status bar: pin to the top of the client area at a fixed height.
+    // Do NOT send WM_SIZE to STATUSCLASSNAME — it would re-dock itself to the
+    // bottom of the parent and fight with SetWindowPos on every resize.
     int sbH = kStatusHeight;
     if (statusBar_) {
-        RECT sbrc;
-        GetWindowRect(statusBar_, &sbrc);
-        sbH = sbrc.bottom - sbrc.top;
+        SetWindowPos(statusBar_, nullptr,
+                     0, 0, totalW, sbH,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        // Update the part-width so the right half stretches to window edge.
+        int parts[2] = { totalW / 2, -1 };
+        SendMessage(statusBar_, SB_SETPARTS, 2,
+                    reinterpret_cast<LPARAM>(parts));
     }
 
-    // Slot grid occupies the area between status bar and control bar.
+    // Slot grid occupies the area between status bar (top) and control bar (bottom).
     int slotAreaTop = sbH;
     int slotAreaBot = totalH - kBarHeight;
-    int slotAreaH   = slotAreaBot - slotAreaTop;
+    if (slotAreaBot < slotAreaTop) slotAreaBot = slotAreaTop; // guard: very small window
+    int slotAreaH = slotAreaBot - slotAreaTop;
     int halfW = totalW / 2;
     int halfH = slotAreaH / 2;
 
     RECT slotBounds[4] = {
-        { 0,     slotAreaTop,          halfW, slotAreaTop + halfH }, // Slot 1
+        { 0,     slotAreaTop,          halfW,  slotAreaTop + halfH }, // Slot 1
         { halfW, slotAreaTop,          totalW, slotAreaTop + halfH }, // Slot 2
-        { 0,     slotAreaTop + halfH,  halfW, slotAreaBot },          // Slot 3
-        { halfW, slotAreaTop + halfH,  totalW, slotAreaBot },         // Slot 4
+        { 0,     slotAreaTop + halfH,  halfW,  slotAreaBot },          // Slot 3
+        { halfW, slotAreaTop + halfH,  totalW, slotAreaBot },          // Slot 4
     };
     for (int i = 0; i < 4; ++i)
         slots_[i].resize(slotBounds[i]);
