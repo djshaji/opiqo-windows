@@ -29,6 +29,9 @@ public:
     // Shows or hides the quality combo (shown for lossy formats only).
     void showQualityCombo(bool show);
 
+    // Enables or disables the record toggle button.
+    void enableRecordButton(bool enable);
+
     // Repositions and resizes all child controls to fit new bounds.
     void resize(const RECT& bounds);
 

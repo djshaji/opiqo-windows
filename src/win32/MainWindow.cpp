@@ -2,10 +2,12 @@
 
 #include <commctrl.h>
 #include <fcntl.h>
+#include <fstream>
 #include <io.h>
 #include <string>
 #include "resource.h"
 #include "../FileWriter.h"
+#include "SettingsDialog.h"
 
 // Posted from the COM notification thread; handled on the UI thread.
 static constexpr UINT WM_OPIQO_DEVICE_CHANGE = WM_APP + 1;
@@ -115,6 +117,7 @@ bool MainWindow::create(int nCmdShow) {
         controlBar_.create(hwnd_, dummy);
         controlBar_.setFormatIndex(settings_.recordFormat);
         controlBar_.showQualityCombo(settings_.recordFormat != 0);
+        controlBar_.enableRecordButton(false); // enabled when engine reaches Running
         for (int i = 0; i < 4; ++i)
             slots_[i].create(hwnd_, i, dummy);
     }
@@ -185,9 +188,11 @@ void MainWindow::onEngineStatePoll() {
     if (s == AudioEngine::State::Running) {
         // Successfully started — leave toggle ON.
         controlBar_.setPowerState(true);
+        controlBar_.enableRecordButton(true);
     } else {
         // Error or unexpected state — revert toggle and report.
         controlBar_.setPowerState(false);
+        controlBar_.enableRecordButton(false);
         std::string msg = audioEngine_.errorMessage();
         if (msg.empty()) msg = "Audio engine failed to start.";
         MessageBoxA(hwnd_, msg.c_str(),
@@ -246,12 +251,99 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                 case IDM_FILE_EXIT:
                     PostMessage(hwnd_, WM_CLOSE, 0, 0);
                     return 0;
-                case IDM_FILE_EXPORT_PRESET:
-                case IDM_FILE_IMPORT_PRESET:
-                case IDM_SETTINGS_OPEN:
-                    MessageBoxA(hwnd_, "This action is scaffolded in Milestone 0.",
-                                "Opiqo", MB_OK);
+                case IDM_FILE_EXPORT_PRESET: {
+                    char filePath[MAX_PATH] = {};
+                    OPENFILENAMEA ofn = {};
+                    ofn.lStructSize = sizeof(ofn);
+                    ofn.hwndOwner   = hwnd_;
+                    ofn.lpstrFilter = "Opiqo Preset\0*.json\0All Files\0*.*\0\0";
+                    ofn.lpstrFile   = filePath;
+                    ofn.nMaxFile    = MAX_PATH;
+                    ofn.lpstrDefExt = "json";
+                    ofn.Flags       = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+                    if (GetSaveFileNameA(&ofn)) {
+                        std::string data = liveEngine_.getPresetList();
+                        std::ofstream f(filePath);
+                        if (f.is_open())
+                            f << data;
+                        else
+                            MessageBoxA(hwnd_, "Failed to write preset file.",
+                                        "Opiqo — Export", MB_OK | MB_ICONERROR);
+                    }
                     return 0;
+                }
+                case IDM_FILE_IMPORT_PRESET: {
+                    char filePath[MAX_PATH] = {};
+                    OPENFILENAMEA ofn = {};
+                    ofn.lStructSize = sizeof(ofn);
+                    ofn.hwndOwner   = hwnd_;
+                    ofn.lpstrFilter = "Opiqo Preset\0*.json\0All Files\0*.*\0\0";
+                    ofn.lpstrFile   = filePath;
+                    ofn.nMaxFile    = MAX_PATH;
+                    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                    if (GetOpenFileNameA(&ofn)) {
+                        std::ifstream f(filePath);
+                        if (!f.is_open()) {
+                            MessageBoxA(hwnd_, "Failed to open preset file.",
+                                        "Opiqo — Import", MB_OK | MB_ICONERROR);
+                            return 0;
+                        }
+                        try {
+                            json preset;
+                            f >> preset;
+                            if (preset.contains("gain") && preset["gain"].is_number()
+                                    && liveEngine_.gain)
+                                *liveEngine_.gain = preset["gain"].get<float>();
+                            for (int s = 1; s <= 4; ++s) {
+                                std::string key = "plugin" + std::to_string(s);
+                                if (preset.contains(key) && preset[key].is_object())
+                                    liveEngine_.applyPreset(s, preset[key]);
+                            }
+                        } catch (...) {
+                            MessageBoxA(hwnd_, "Preset file is corrupt or unreadable.",
+                                        "Opiqo — Import", MB_OK | MB_ICONWARNING);
+                        }
+                    }
+                    return 0;
+                }
+                case IDM_SETTINGS_OPEN: {
+                    if (recordingFd_ >= 0) {
+                        MessageBoxA(hwnd_,
+                                    "Stop recording before changing audio settings.",
+                                    "Opiqo", MB_OK | MB_ICONINFORMATION);
+                        return 0;
+                    }
+                    AppSettings updated = settings_;
+                    if (SettingsDialog::show(hwnd_, &updated, deviceEnum_.get())) {
+                        bool wasRunning =
+                            (audioEngine_.state() == AudioEngine::State::Running);
+                        if (wasRunning) {
+                            audioEngine_.stop();
+                            controlBar_.setPowerState(false);
+                            controlBar_.enableRecordButton(false);
+                        }
+                        settings_ = updated;
+                        settings_.save();
+                        onDeviceListChanged();
+                        if (wasRunning) {
+                            bool launched = audioEngine_.start(
+                                settings_.sampleRate,
+                                settings_.blockSize,
+                                settings_.inputDeviceId,
+                                settings_.outputDeviceId,
+                                settings_.exclusiveMode);
+                            if (!launched) {
+                                controlBar_.setPowerState(false);
+                                MessageBoxA(hwnd_,
+                                            audioEngine_.errorMessage().c_str(),
+                                            "Opiqo — Engine Error", MB_OK | MB_ICONERROR);
+                            } else {
+                                SetTimer(hwnd_, IDT_ENGINE_STATE, 50, nullptr);
+                            }
+                        }
+                    }
+                    return 0;
+                }
                 case IDC_POWER_TOGGLE: {
                     // Read the button's new checked state after the auto-toggle.
                     bool wantOn = (IsDlgButtonChecked(controlBar_.hwnd(),
@@ -277,6 +369,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                         audioEngine_.stop();
                         // stop() is synchronous — state is Off when it returns.
                         controlBar_.setPowerState(false);
+                        controlBar_.enableRecordButton(false);
                     }
                     return 0;
                 }
@@ -310,8 +403,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             return 0;
                         }
 
-                        int fd = _open(filePath, _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY,
-                                       _S_IREAD | _S_IWRITE);
+                        int fd = _open(filePath, _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0644);
                         if (fd < 0) {
                             controlBar_.setRecordState(false);
                             MessageBoxA(hwnd_, "Failed to open output file.",

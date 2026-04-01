@@ -121,6 +121,11 @@ void ControlBar::showQualityCombo(bool show) {
         ShowWindow(qualityCombo_, show ? SW_SHOW : SW_HIDE);
 }
 
+void ControlBar::enableRecordButton(bool enable) {
+    if (recordButton_)
+        EnableWindow(recordButton_, enable ? TRUE : FALSE);
+}
+
 void ControlBar::resize(const RECT& bounds) {
     if (hwnd_)
         MoveWindow(hwnd_,

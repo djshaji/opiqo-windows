@@ -64,6 +64,7 @@ public:
     int addPlugin (int position, std::string uri);
     void deletePlugin (int plugin);
     std::string getPresetList ();
+    void applyPreset(int slot, const json& preset);
     void setFilePath (int position, std::string uri, std::string path) ;
     bool startRecording(int fd, int file_type, int quality);
     void stopRecording();

@@ -1,4 +1,24 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include "resource.h"
+
+IDD_SETTINGS DIALOG 0, 0, 300, 200
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Sample Rate:",  -1,                    10,  14, 60,  8
+    COMBOBOX        IDC_SETTINGS_SAMPLERATE,               75,  12, 80,  60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Block Size:",   -1,                   10,  34, 60,  8
+    COMBOBOX        IDC_SETTINGS_BLOCKSIZE,                75,  32, 80,  60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Exclusive Mode", IDC_SETTINGS_EXCLUSIVE, 10, 54, 100, 12, WS_TABSTOP
+    LTEXT           "Input Device:",  -1,                  10,  74, 60,  8
+    COMBOBOX        IDC_SETTINGS_INPUT,                    75,  72, 210, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Output Device:", -1,                  10,  94, 60,  8
+    COMBOBOX        IDC_SETTINGS_OUTPUT,                   75,  92, 210, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK",     IDOK,                       185, 120,  50, 14, WS_TABSTOP
+    PUSHBUTTON      "Cancel", IDCANCEL,                   240, 120,  50, 14, WS_TABSTOP
+END
 
 IDR_MAINMENU MENU
 BEGIN

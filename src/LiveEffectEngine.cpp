@@ -15,6 +15,7 @@
  */
 
 #include <cassert>
+#include <unordered_map>
 #include "logging_macros.h"
 
 #include "LiveEffectEngine.h"
@@ -462,6 +463,23 @@ std::string LiveEffectEngine::getPresetList () {
     preset ["plugin4"] = getPreset(4);
 
     return preset.dump();
+}
+
+void LiveEffectEngine::applyPreset(int slot, const json& preset) {
+    if (!preset.is_object()) return;
+    auto ports = getPluginPortInfo(slot);
+    if (ports.empty()) return;
+
+    // Build symbol -> port-index map from live metadata.
+    std::unordered_map<std::string, uint32_t> symbolToIndex;
+    for (const auto& p : ports)
+        symbolToIndex[p.symbol] = p.portIndex;
+
+    for (auto it = preset.begin(); it != preset.end(); ++it) {
+        auto found = symbolToIndex.find(it.key());
+        if (found != symbolToIndex.end() && it->is_number())
+            setValue(slot, static_cast<int>(found->second), it->get<float>());
+    }
 }
 
 void LiveEffectEngine::setFilePath (int position, std::string uri, std::string path) {
