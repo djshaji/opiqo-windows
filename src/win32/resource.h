@@ -22,4 +22,8 @@
 
 #define IDC_PLUGIN_LIST 51100
 
+// Per-slot dynamic parameter controls:
+//   slot s, port index p  ->  IDC_PARAM_BASE + s * 500 + p
+#define IDC_PARAM_BASE 52000
+
 #define IDT_ENGINE_STATE 1

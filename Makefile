@@ -334,6 +334,30 @@ src/win32/MainWindow.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/MainWindow.cpp.s
 .PHONY : src/win32/MainWindow.cpp.s
 
+src/win32/ParameterPanel.obj: src/win32/ParameterPanel.cpp.obj
+.PHONY : src/win32/ParameterPanel.obj
+
+# target to build an object file
+src/win32/ParameterPanel.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/ParameterPanel.cpp.obj
+.PHONY : src/win32/ParameterPanel.cpp.obj
+
+src/win32/ParameterPanel.i: src/win32/ParameterPanel.cpp.i
+.PHONY : src/win32/ParameterPanel.i
+
+# target to preprocess a source file
+src/win32/ParameterPanel.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/ParameterPanel.cpp.i
+.PHONY : src/win32/ParameterPanel.cpp.i
+
+src/win32/ParameterPanel.s: src/win32/ParameterPanel.cpp.s
+.PHONY : src/win32/ParameterPanel.s
+
+# target to generate assembly for a file
+src/win32/ParameterPanel.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/ParameterPanel.cpp.s
+.PHONY : src/win32/ParameterPanel.cpp.s
+
 src/win32/PluginDialog.obj: src/win32/PluginDialog.cpp.obj
 .PHONY : src/win32/PluginDialog.obj
 
@@ -472,6 +496,9 @@ help:
 	@echo "... src/win32/MainWindow.obj"
 	@echo "... src/win32/MainWindow.i"
 	@echo "... src/win32/MainWindow.s"
+	@echo "... src/win32/ParameterPanel.obj"
+	@echo "... src/win32/ParameterPanel.i"
+	@echo "... src/win32/ParameterPanel.s"
 	@echo "... src/win32/PluginDialog.obj"
 	@echo "... src/win32/PluginDialog.i"
 	@echo "... src/win32/PluginDialog.s"

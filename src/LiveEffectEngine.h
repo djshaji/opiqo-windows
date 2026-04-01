@@ -20,6 +20,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <vector>
 #include <lilv/lilv.h>
 #include <libgen.h>
 #include <dlfcn.h>
@@ -73,6 +74,7 @@ public:
     json getPreset (int plugin);
     void setPluginEnabled(int plugin, bool is_enabled);
     std::string initPlugins(std::string);
+    std::vector<LV2Plugin::PortInfo> getPluginPortInfo(int slot);
     
 private:
     bool              mIsEffectOn = false;

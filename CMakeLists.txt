@@ -40,6 +40,7 @@ set(ENGINE_SOURCES
 set(WIN32_UI_SOURCES
     src/win32/AppSettings.cpp
     src/win32/MainWindow.cpp
+    src/win32/ParameterPanel.cpp
     src/win32/PluginSlot.cpp
     src/win32/PluginDialog.cpp
     src/win32/ControlBar.cpp
@@ -108,4 +109,6 @@ target_link_libraries(opiqo PRIVATE
     uuid
     mmdevapi
     avrt
+    comctl32
+    comdlg32
 )

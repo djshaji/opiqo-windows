@@ -584,3 +584,39 @@ int LiveEffectEngine::process (float* input, float* output, int frames) {
 json LiveEffectEngine::getAvailablePlugins() {
     return pluginInfo;
 }
+
+std::vector<LV2Plugin::PortInfo> LiveEffectEngine::getPluginPortInfo(int slot) {
+    std::lock_guard<std::mutex> lock(pluginMutex);
+
+    LV2Plugin* p = nullptr;
+    switch (slot) {
+        case 1: p = plugin1; break;
+        case 2: p = plugin2; break;
+        case 3: p = plugin3; break;
+        case 4: p = plugin4; break;
+        default: return {};
+    }
+    if (!p) return {};
+
+    std::vector<LV2Plugin::PortInfo> result = p->getControlPortInfo();
+
+    // Append atom file-path parameters from plugin metadata collected at scan time
+    const char* uri_str = lilv_node_as_string(lilv_plugin_get_uri(p->plugin_));
+    if (uri_str && pluginInfo.contains(uri_str) &&
+        pluginInfo[uri_str].contains("writableParams")) {
+        const json& wp = pluginInfo[uri_str]["writableParams"];
+        for (auto it = wp.begin(); it != wp.end(); ++it) {
+            LV2Plugin::PortInfo info;
+            info.type        = LV2Plugin::PortInfo::ControlType::AtomFilePath;
+            info.writableUri = it.key();
+            info.symbol      = it.key();
+            if (it.value().contains("label") && it.value()["label"].is_string())
+                info.label = it.value()["label"].get<std::string>();
+            else
+                info.label = it.key();
+            result.push_back(std::move(info));
+        }
+    }
+
+    return result;
+}

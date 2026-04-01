@@ -17,6 +17,13 @@ MainWindow::MainWindow(HINSTANCE instance)
 MainWindow::~MainWindow() = default;
 
 bool MainWindow::create(int nCmdShow) {
+    // Initialise common controls (required for TRACKBAR_CLASS used in
+    // ParameterPanel).
+    INITCOMMONCONTROLSEX iccex = {};
+    iccex.dwSize = sizeof(iccex);
+    iccex.dwICC  = ICC_WIN95_CLASSES | ICC_BAR_CLASSES;
+    InitCommonControlsEx(&iccex);
+
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)))
         return false;
 
@@ -36,6 +43,7 @@ bool MainWindow::create(int nCmdShow) {
     }
 
     PluginSlot::registerClass(instance_);
+    ParameterPanel::registerClass(instance_);
 
     hwnd_ = CreateWindowExA(
         0,
@@ -283,6 +291,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             else
                                 name = uri;
                             slots_[i].setPlugin(name.c_str());
+                            slots_[i].buildParameterPanel(&liveEngine_);
                             slotEnabled_[i] = true;
                         }
                         return 0;
@@ -299,6 +308,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     if (id >= IDC_SLOT_DELETE_BASE && id < IDC_SLOT_DELETE_BASE + 4) {
                         int i = id - IDC_SLOT_DELETE_BASE;
                         liveEngine_.deletePlugin(i + 1);
+                        slots_[i].clearParameterPanel();
                         slots_[i].clearPlugin();
                         slotEnabled_[i] = true;
                         return 0;

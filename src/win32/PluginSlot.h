@@ -1,6 +1,9 @@
 #pragma once
 
 #include <windows.h>
+#include "ParameterPanel.h"
+
+class LiveEffectEngine;
 
 class PluginSlot {
 public:
@@ -22,14 +25,24 @@ public:
     // Reposition and resize the slot panel and its buttons.
     void resize(const RECT& bounds);
 
+    // Build dynamic parameter controls for the plugin currently in this slot.
+    // Call after addPlugin() succeeds.  engine must remain valid for the panel's
+    // lifetime.
+    bool buildParameterPanel(LiveEffectEngine* engine);
+
+    // Destroy all dynamic parameter controls.
+    // Call before clearPlugin() or on delete.
+    void clearParameterPanel();
+
 private:
     static LRESULT CALLBACK SlotWndProc(HWND hwnd, UINT msg,
                                         WPARAM wParam, LPARAM lParam);
 
-    HWND hwnd_         = nullptr;
-    HWND labelStatic_  = nullptr;
-    HWND addButton_    = nullptr;
-    HWND bypassButton_ = nullptr;
-    HWND deleteButton_ = nullptr;
-    int  slotIndex_    = 0;
+    HWND           hwnd_         = nullptr;
+    HWND           labelStatic_  = nullptr;
+    HWND           addButton_    = nullptr;
+    HWND           bypassButton_ = nullptr;
+    HWND           deleteButton_ = nullptr;
+    int            slotIndex_    = 0;
+    ParameterPanel paramPanel_;
 };

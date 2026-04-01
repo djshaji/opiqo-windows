@@ -1,5 +1,6 @@
 #include "PluginSlot.h"
 #include "resource.h"
+#include "../LiveEffectEngine.h"
 
 static const char* kSlotClassName = "OpiqoPluginSlot";
 static const char* kSlotNumbers[] = { "Slot 1", "Slot 2", "Slot 3", "Slot 4" };
@@ -127,6 +128,34 @@ void PluginSlot::resize(const RECT& bounds) {
     if (addButton_)    MoveWindow(addButton_,    4,   30, 90,    24, TRUE);
     if (bypassButton_) MoveWindow(bypassButton_, 100, 30, 70,    24, TRUE);
     if (deleteButton_) MoveWindow(deleteButton_, 176, 30, 70,    24, TRUE);
+    // Parameter panel occupies the area below the button row.
+    const RECT panelBounds = { 0, 60, w, h };
+    paramPanel_.resize(panelBounds);
 }
 
 HWND PluginSlot::hwnd() const { return hwnd_; }
+
+// ---------------------------------------------------------------------------
+// Parameter panel
+// ---------------------------------------------------------------------------
+
+bool PluginSlot::buildParameterPanel(LiveEffectEngine* engine) {
+    auto ports = engine->getPluginPortInfo(slotIndex_ + 1);
+    if (ports.empty()) return true;  // No parameters – not an error.
+
+    const int baseId = IDC_PARAM_BASE + slotIndex_ * 500;
+    if (!paramPanel_.build(hwnd_, engine, slotIndex_ + 1, ports, baseId))
+        return false;
+
+    // Apply layout immediately so controls are visible without waiting for
+    // the next WM_SIZE from the parent.
+    RECT rc = {};
+    GetClientRect(hwnd_, &rc);
+    const RECT panelBounds = { 0, 60, rc.right, rc.bottom };
+    paramPanel_.resize(panelBounds);
+    return true;
+}
+
+void PluginSlot::clearParameterPanel() {
+    paramPanel_.clear();
+}

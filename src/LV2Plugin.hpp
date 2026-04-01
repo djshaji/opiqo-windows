@@ -686,6 +686,97 @@ public:
         return ports_[index].lilv_port;
     }
 
+    // -------------------------------------------------------------------------
+    // PortInfo - complete metadata for one control input port, used by the UI
+    // to build dynamic parameter panels at runtime.
+    // -------------------------------------------------------------------------
+    struct PortInfo {
+        enum class ControlType { Float, Toggle, Trigger, AtomFilePath };
+
+        uint32_t    portIndex  = 0;
+        std::string symbol;
+        std::string label;
+        ControlType type       = ControlType::Float;
+        float       minVal     = 0.0f;
+        float       maxVal     = 1.0f;
+        float       defVal     = 0.0f;
+        float       currentVal = 0.0f;
+        bool        isEnum     = false;
+        std::vector<std::pair<float, std::string>> scalePoints; // value, display label
+        std::string writableUri; // non-empty only for AtomFilePath type
+    };
+
+    // Build a PortInfo list for all control input ports in this plugin.
+    // Must not be called concurrently with process() or closePlugin().
+    std::vector<PortInfo> getControlPortInfo() const {
+        std::vector<PortInfo> result;
+        if (!plugin_ || !world_) return result;
+
+        LilvNode* toggle_node  = lilv_new_uri(world_, "http://lv2plug.in/ns/lv2core#toggled");
+        LilvNode* trigger_node = lilv_new_uri(world_, "http://lv2plug.in/ns/lv2core#trigger");
+        LilvNode* enum_node    = lilv_new_uri(world_, "http://lv2plug.in/ns/lv2core#enumeration");
+
+        for (const auto& p : ports_) {
+            if (!p.is_control || !p.is_input) continue;
+
+            PortInfo info;
+            info.portIndex  = p.index;
+            info.symbol     = p.symbol;
+            info.label      = p.name.empty() ? p.symbol : p.name;
+            info.currentVal = p.control;
+
+            const bool is_toggle  = lilv_port_has_property(plugin_, p.lilv_port, toggle_node);
+            const bool is_trigger = lilv_port_has_property(plugin_, p.lilv_port, trigger_node);
+
+            if (is_trigger) {
+                info.type   = PortInfo::ControlType::Trigger;
+                info.minVal = 0.0f;
+                info.maxVal = 1.0f;
+                info.defVal = 0.0f;
+            } else if (is_toggle) {
+                info.type   = PortInfo::ControlType::Toggle;
+                info.minVal = 0.0f;
+                info.maxVal = 1.0f;
+                info.defVal = p.defvalue;
+            } else {
+                info.type = PortInfo::ControlType::Float;
+                LilvNode *pmin = nullptr, *pmax = nullptr, *pdflt = nullptr;
+                lilv_port_get_range(plugin_, p.lilv_port, &pdflt, &pmin, &pmax);
+                info.minVal = pmin  ? lilv_node_as_float(pmin)  : 0.0f;
+                info.maxVal = pmax  ? lilv_node_as_float(pmax)  : 1.0f;
+                info.defVal = pdflt ? lilv_node_as_float(pdflt) : 0.0f;
+                if (pmin)  lilv_node_free(pmin);
+                if (pmax)  lilv_node_free(pmax);
+                if (pdflt) lilv_node_free(pdflt);
+                // Guard degenerate ranges
+                if (info.maxVal <= info.minVal) info.maxVal = info.minVal + 1.0f;
+            }
+
+            info.isEnum = lilv_port_has_property(plugin_, p.lilv_port, enum_node);
+
+            LilvScalePoints* sp = lilv_port_get_scale_points(plugin_, p.lilv_port);
+            if (sp) {
+                LILV_FOREACH(scale_points, i, sp) {
+                    const LilvScalePoint* pt = lilv_scale_points_get(sp, i);
+                    const LilvNode* vn = lilv_scale_point_get_value(pt);
+                    const LilvNode* ln = lilv_scale_point_get_label(pt);
+                    float v = vn ? lilv_node_as_float(vn) : 0.0f;
+                    const char* l = ln ? lilv_node_as_string(ln) : "";
+                    info.scalePoints.push_back({v, l ? l : ""});
+                }
+                lilv_scale_points_free(sp);
+                if (!info.scalePoints.empty()) info.isEnum = true;
+            }
+
+            result.push_back(std::move(info));
+        }
+
+        lilv_node_free(toggle_node);
+        lilv_node_free(trigger_node);
+        lilv_node_free(enum_node);
+        return result;
+    }
+
     // Get ringbuffer for reading DSP→UI atoms
     lv2_ringbuffer_t* getAtomOutputRingbuffer(const char* portSymbol) {
         for (auto& p : ports_) {
