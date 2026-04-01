@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+class LiveEffectEngine;
+
 class AudioEngine {
 public:
     enum class State {
@@ -20,6 +22,11 @@ public:
 
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
+
+    // Set the DSP engine to call in the audio loop.
+    // Must be called before start(). Non-owning — caller keeps the object alive
+    // for the entire duration of any active stream.
+    void setEngine(LiveEffectEngine* engine);
 
     // Start the duplex WASAPI stream with the given parameters.
     // Returns true if the audio thread was launched successfully.
@@ -43,7 +50,7 @@ private:
     // Audio-thread entry point.
     void audioThreadProc();
 
-    // WASAPI pass-through loop called from audioThreadProc().
+    // WASAPI processing loop called from audioThreadProc().
     // Returns false if the stream must stop due to device loss.
     bool runLoop();
 

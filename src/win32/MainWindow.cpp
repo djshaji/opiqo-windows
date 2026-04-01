@@ -1,9 +1,15 @@
 #include "MainWindow.h"
 
+#include <commctrl.h>
 #include "resource.h"
 
 // Posted from the COM notification thread; handled on the UI thread.
 static constexpr UINT WM_OPIQO_DEVICE_CHANGE = WM_APP + 1;
+
+static constexpr int kBarHeight    = 40;   // ControlBar height (px)
+static constexpr int kStatusHeight = 22;   // Status bar height (px) — self-sized by STATUSCLASSNAME
+static constexpr int kMinWidth     = 900;
+static constexpr int kMinHeight    = 650;
 
 MainWindow::MainWindow(HINSTANCE instance)
     : instance_(instance) {}
@@ -57,6 +63,54 @@ bool MainWindow::create(int nCmdShow) {
     // Resolve saved device ids against what is actually present.
     onDeviceListChanged();
 
+    // Initialise LV2 plugin discovery. The path is resolved relative to the
+    // executable; on Windows the bundles live in bin\lv2 next to the .exe.
+    {
+        char exePath[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        std::string lv2Dir = exePath;
+        auto sep = lv2Dir.rfind('\\');
+        if (sep != std::string::npos) lv2Dir.resize(sep);
+        lv2Dir += "\\lv2";
+        liveEngine_.initPlugins(lv2Dir);
+    }
+
+    // Wire the DSP engine into the audio pipeline.
+    audioEngine_.setEngine(&liveEngine_);
+
+    // Status bar along the top of the client area.
+    statusBar_ = CreateWindowExA(
+        0, STATUSCLASSNAME, nullptr,
+        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        0, 0, 0, 0,
+        hwnd_, nullptr, instance_, nullptr);
+    if (statusBar_) {
+        // Two equal-width parts: input device | output device.
+        int parts[2] = { 300, -1 };
+        SendMessage(statusBar_, SB_SETPARTS, 2,
+                    reinterpret_cast<LPARAM>(parts));
+        SendMessageA(statusBar_, SB_SETTEXTA, 0,
+                     reinterpret_cast<LPARAM>("In: (none)"));
+        SendMessageA(statusBar_, SB_SETTEXTA, 1,
+                     reinterpret_cast<LPARAM>("Out: (none)"));
+    }
+
+    // Create the control bar and the 2x2 slot grid (bounds set by doLayout).
+    {
+        RECT dummy = {};
+        controlBar_.create(hwnd_, dummy);
+        static const char* slotLabels[4] = {
+            "Slot 1", "Slot 2", "Slot 3", "Slot 4"
+        };
+        for (int i = 0; i < 4; ++i) {
+            slots_[i].create(hwnd_, 60000 + i, dummy);
+            slots_[i].setLabel(slotLabels[i]);
+        }
+    }
+
+    // Apply initial layout.
+    doLayout();
+
     ShowWindow(hwnd_, SW_SHOWMAXIMIZED);
     UpdateWindow(hwnd_);
     return true;
@@ -71,6 +125,65 @@ int MainWindow::run() {
     return static_cast<int>(msg.wParam);
 }
 
+void MainWindow::doLayout() {
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    int totalW = rc.right;
+    int totalH = rc.bottom;
+
+    // Status bar self-sizes when sent WM_SIZE.
+    if (statusBar_)
+        SendMessage(statusBar_, WM_SIZE, 0, 0);
+
+    // Determine actual status bar height from its window rect.
+    int sbH = kStatusHeight;
+    if (statusBar_) {
+        RECT sbrc;
+        GetWindowRect(statusBar_, &sbrc);
+        sbH = sbrc.bottom - sbrc.top;
+    }
+
+    // Slot grid occupies the area between status bar and control bar.
+    int slotAreaTop = sbH;
+    int slotAreaBot = totalH - kBarHeight;
+    int slotAreaH   = slotAreaBot - slotAreaTop;
+    int halfW = totalW / 2;
+    int halfH = slotAreaH / 2;
+
+    RECT slotBounds[4] = {
+        { 0,     slotAreaTop,          halfW, slotAreaTop + halfH }, // Slot 1
+        { halfW, slotAreaTop,          totalW, slotAreaTop + halfH }, // Slot 2
+        { 0,     slotAreaTop + halfH,  halfW, slotAreaBot },          // Slot 3
+        { halfW, slotAreaTop + halfH,  totalW, slotAreaBot },         // Slot 4
+    };
+    for (int i = 0; i < 4; ++i)
+        slots_[i].resize(slotBounds[i]);
+
+    // Control bar along the bottom.
+    RECT barBounds = { 0, slotAreaBot, totalW, totalH };
+    controlBar_.resize(barBounds);
+}
+
+void MainWindow::onEngineStatePoll() {
+    AudioEngine::State s = audioEngine_.state();
+    if (s == AudioEngine::State::Starting)
+        return;  // Still transitioning — keep polling.
+
+    KillTimer(hwnd_, IDT_ENGINE_STATE);
+
+    if (s == AudioEngine::State::Running) {
+        // Successfully started — leave toggle ON.
+        controlBar_.setPowerState(true);
+    } else {
+        // Error or unexpected state — revert toggle and report.
+        controlBar_.setPowerState(false);
+        std::string msg = audioEngine_.errorMessage();
+        if (msg.empty()) msg = "Audio engine failed to start.";
+        MessageBoxA(hwnd_, msg.c_str(),
+                    "Opiqo \u2014 Engine Error", MB_OK | MB_ICONERROR);
+    }
+}
+
 void MainWindow::onDeviceListChanged() {
     auto inputs  = deviceEnum_->enumerateInputDevices();
     auto outputs = deviceEnum_->enumerateOutputDevices();
@@ -79,6 +192,20 @@ void MainWindow::onDeviceListChanged() {
         inputs,  settings_.inputDeviceId);
     settings_.outputDeviceId = WasapiDeviceEnum::resolveOrDefault(
         outputs, settings_.outputDeviceId);
+
+    // Update status bar with friendly names.
+    if (statusBar_) {
+        std::string inName  = "In: (none)";
+        std::string outName = "Out: (none)";
+        for (const auto& d : inputs)
+            if (d.id == settings_.inputDeviceId) { inName  = "In: "  + d.friendlyName; break; }
+        for (const auto& d : outputs)
+            if (d.id == settings_.outputDeviceId) { outName = "Out: " + d.friendlyName; break; }
+        SendMessageA(statusBar_, SB_SETTEXTA, 0,
+                     reinterpret_cast<LPARAM>(inName.c_str()));
+        SendMessageA(statusBar_, SB_SETTEXTA, 1,
+                     reinterpret_cast<LPARAM>(outName.c_str()));
+    }
 }
 
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT message,
@@ -114,14 +241,60 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     MessageBoxA(hwnd_, "This action is scaffolded in Milestone 0.",
                                 "Opiqo", MB_OK);
                     return 0;
+                case IDC_POWER_TOGGLE: {
+                    // Read the button's new checked state after the auto-toggle.
+                    bool wantOn = (IsDlgButtonChecked(controlBar_.hwnd(),
+                                                      IDC_POWER_TOGGLE) == BST_CHECKED);
+                    if (wantOn) {
+                        bool launched = audioEngine_.start(
+                            settings_.sampleRate,
+                            settings_.blockSize,
+                            settings_.inputDeviceId,
+                            settings_.outputDeviceId,
+                            settings_.exclusiveMode);
+                        if (!launched) {
+                            // start() refused immediately (wrong state or bad params).
+                            controlBar_.setPowerState(false);
+                            MessageBoxA(hwnd_,
+                                        audioEngine_.errorMessage().c_str(),
+                                        "Opiqo — Engine Error", MB_OK | MB_ICONERROR);
+                        } else {
+                            // Poll until the audio thread settles to Running or Error.
+                            SetTimer(hwnd_, IDT_ENGINE_STATE, 50, nullptr);
+                        }
+                    } else {
+                        audioEngine_.stop();
+                        // stop() is synchronous — state is Off when it returns.
+                        controlBar_.setPowerState(false);
+                    }
+                    return 0;
+                }
                 default:
                     break;
             }
             break;
         }
+
+        case WM_TIMER:
+            if (wParam == IDT_ENGINE_STATE) {
+                onEngineStatePoll();
+                return 0;
+            }
+            break;
         case WM_OPIQO_DEVICE_CHANGE:
             onDeviceListChanged();
             return 0;
+
+        case WM_SIZE:
+            doLayout();
+            return 0;
+
+        case WM_GETMINMAXINFO: {
+            auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+            mmi->ptMinTrackSize.x = kMinWidth;
+            mmi->ptMinTrackSize.y = kMinHeight;
+            return 0;
+        }
 
         case WM_DESTROY:
             settings_.save();

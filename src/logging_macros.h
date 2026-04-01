@@ -28,7 +28,9 @@
 #define LOGF(...) printf(__VA_ARGS__); printf("\n");
 
 #define HERE printf("[here]: %s:%d\n", __FILE__, __LINE__);
+#undef IN
 #define IN printf(">> %s\n", __PRETTY_FUNCTION__);
+#undef OUT
 #define OUT printf("<< %s\n", __PRETTY_FUNCTION__);
 
 //#define HERE LOGE ("[here]: %s:%d", __FILE__, __LINE__);

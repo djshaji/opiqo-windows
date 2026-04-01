@@ -5,6 +5,7 @@
 #include <avrt.h>
 
 #include "AudioEngine.h"
+#include "../LiveEffectEngine.h"
 
 #include <atomic>
 #include <cstring>
@@ -40,6 +41,11 @@ struct AudioEngine::Impl {
     // Pre-allocated scratch buffers (sized at start(), reused in loop).
     std::vector<float> inBuf;
     std::vector<float> outBuf;
+    // Fixed stereo (2-ch) intermediate buffer passed to LiveEffectEngine::process().
+    std::vector<float> stereoBuf;
+
+    // DSP engine (non-owning pointer; nullptr = pass-through).
+    LiveEffectEngine* engine = nullptr;
 
     // Thread and state.
     std::thread              thread;
@@ -118,6 +124,10 @@ AudioEngine::AudioEngine() : impl_(new Impl()) {}
 AudioEngine::~AudioEngine() {
     stop();
     delete impl_;
+}
+
+void AudioEngine::setEngine(LiveEffectEngine* engine) {
+    impl_->engine = engine;
 }
 
 AudioEngine::State AudioEngine::state() const {
@@ -336,6 +346,8 @@ void AudioEngine::audioThreadProc() {
                                   impl_->renderFmt->nChannels);
     impl_->inBuf.assign(renderBufSize * maxChannels, 0.f);
     impl_->outBuf.assign(renderBufSize * maxChannels, 0.f);
+    // Stereo buffer for LiveEffectEngine (always 2 channels).
+    impl_->stereoBuf.assign(renderBufSize * 2, 0.f);
 
     // -----------------------------------------------------------------------
     // Start streams
@@ -414,14 +426,39 @@ bool AudioEngine::runLoop() {
 
             impl_->captureService->ReleaseBuffer(numFrames);
 
-            // Pass-through: copy input to output (channel count may differ).
-            UINT32 copyChannels = std::min(capChannels, renChannels);
-            for (UINT32 f = 0; f < numFrames; ++f) {
-                for (UINT32 c = 0; c < renChannels; ++c) {
-                    impl_->outBuf[f * renChannels + c] =
-                        (c < copyChannels)
-                            ? impl_->inBuf[f * capChannels + c]
-                            : 0.f;
+            if (impl_->engine) {
+                // Downmix capture to stereo for LiveEffectEngine.
+                for (UINT32 f = 0; f < numFrames; ++f) {
+                    impl_->stereoBuf[f * 2 + 0] =
+                        (capChannels >= 1) ? impl_->inBuf[f * capChannels + 0] : 0.f;
+                    impl_->stereoBuf[f * 2 + 1] =
+                        (capChannels >= 2) ? impl_->inBuf[f * capChannels + 1] : impl_->stereoBuf[f * 2];
+                }
+
+                // DSP processing — stereo in, stereo out.
+                impl_->engine->process(
+                    impl_->stereoBuf.data(),
+                    impl_->stereoBuf.data() + numFrames * 2,  // non-overlapping output half
+                    static_cast<int>(numFrames));
+
+                // Upmix stereo output back to render channel count.
+                const float* stereoOut = impl_->stereoBuf.data() + numFrames * 2;
+                for (UINT32 f = 0; f < numFrames; ++f) {
+                    for (UINT32 c = 0; c < renChannels; ++c) {
+                        impl_->outBuf[f * renChannels + c] =
+                            (c < 2) ? stereoOut[f * 2 + c] : 0.f;
+                    }
+                }
+            } else {
+                // No engine wired — plain pass-through.
+                UINT32 copyChannels = std::min(capChannels, renChannels);
+                for (UINT32 f = 0; f < numFrames; ++f) {
+                    for (UINT32 c = 0; c < renChannels; ++c) {
+                        impl_->outBuf[f * renChannels + c] =
+                            (c < copyChannels)
+                                ? impl_->inBuf[f * capChannels + c]
+                                : 0.f;
+                    }
                 }
             }
 

@@ -2,9 +2,9 @@
 
 bool PluginSlot::create(HWND parent, int id, const RECT& bounds) {
     hwnd_ = CreateWindowExA(
-        0,
+        WS_EX_CLIENTEDGE,
         "STATIC",
-        "Plugin Slot",
+        "Empty Slot",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
         bounds.left,
         bounds.top,
@@ -16,6 +16,20 @@ bool PluginSlot::create(HWND parent, int id, const RECT& bounds) {
         nullptr);
 
     return hwnd_ != nullptr;
+}
+
+void PluginSlot::setLabel(const char* text) {
+    if (hwnd_)
+        SetWindowTextA(hwnd_, text);
+}
+
+void PluginSlot::resize(const RECT& bounds) {
+    if (hwnd_)
+        MoveWindow(hwnd_,
+                   bounds.left, bounds.top,
+                   bounds.right - bounds.left,
+                   bounds.bottom - bounds.top,
+                   TRUE);
 }
 
 HWND PluginSlot::hwnd() const {
