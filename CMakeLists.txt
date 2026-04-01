@@ -107,4 +107,5 @@ target_link_libraries(opiqo PRIVATE
     ole32
     uuid
     mmdevapi
+    avrt
 )

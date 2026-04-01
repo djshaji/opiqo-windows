@@ -125,6 +125,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY:
             settings_.save();
+            audioEngine_.stop();
             deviceEnum_.reset();   // Release COM objects before CoUninitialize.
             CoUninitialize();
             PostQuitMessage(0);

@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "AppSettings.h"
+#include "AudioEngine.h"
 #include "WasapiDeviceEnum.h"
 
 class MainWindow {
@@ -25,6 +26,7 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND      hwnd_     = nullptr;
 
-    AppSettings                    settings_;
-    std::unique_ptr<WasapiDeviceEnum> deviceEnum_;
+    AppSettings                       settings_;
+    std::unique_ptr<WasapiDeviceEnum>  deviceEnum_;
+    AudioEngine                        audioEngine_;
 };
