@@ -4,15 +4,32 @@
 
 class PluginSlot {
 public:
-    bool create(HWND parent, int id, const RECT& bounds);
+    // Register the "OpiqoPluginSlot" window class. Call once at app startup.
+    static bool registerClass(HINSTANCE hInst);
+
+    bool create(HWND parent, int slotIndex, const RECT& bounds);
     HWND hwnd() const;
 
-    // Update the slot header label (e.g. slot number or active plugin name).
-    void setLabel(const char* text);
+    // Set label to active plugin name and enable Bypass/Delete.
+    void setPlugin(const char* name);
 
-    // Reposition and resize the slot panel.
+    // Reset label to "Empty Slot" and disable Bypass/Delete.
+    void clearPlugin();
+
+    // Update the Bypass button text to reflect current bypass state.
+    void setBypassVisual(bool bypassed);
+
+    // Reposition and resize the slot panel and its buttons.
     void resize(const RECT& bounds);
 
 private:
-    HWND hwnd_ = nullptr;
+    static LRESULT CALLBACK SlotWndProc(HWND hwnd, UINT msg,
+                                        WPARAM wParam, LPARAM lParam);
+
+    HWND hwnd_         = nullptr;
+    HWND labelStatic_  = nullptr;
+    HWND addButton_    = nullptr;
+    HWND bypassButton_ = nullptr;
+    HWND deleteButton_ = nullptr;
+    int  slotIndex_    = 0;
 };

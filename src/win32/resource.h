@@ -15,4 +15,11 @@
 #define IDC_RECORD_TOGGLE 50102
 #define IDC_FORMAT_COMBO  50103
 
+// Per-slot controls: base + slotIndex (0-3)
+#define IDC_SLOT_ADD_BASE    51000
+#define IDC_SLOT_BYPASS_BASE 51010
+#define IDC_SLOT_DELETE_BASE 51020
+
+#define IDC_PLUGIN_LIST 51100
+
 #define IDT_ENGINE_STATE 1

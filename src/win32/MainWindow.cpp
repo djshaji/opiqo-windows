@@ -35,6 +35,8 @@ bool MainWindow::create(int nCmdShow) {
         return false;
     }
 
+    PluginSlot::registerClass(instance_);
+
     hwnd_ = CreateWindowExA(
         0,
         className,
@@ -99,13 +101,8 @@ bool MainWindow::create(int nCmdShow) {
     {
         RECT dummy = {};
         controlBar_.create(hwnd_, dummy);
-        static const char* slotLabels[4] = {
-            "Slot 1", "Slot 2", "Slot 3", "Slot 4"
-        };
-        for (int i = 0; i < 4; ++i) {
-            slots_[i].create(hwnd_, 60000 + i, dummy);
-            slots_[i].setLabel(slotLabels[i]);
-        }
+        for (int i = 0; i < 4; ++i)
+            slots_[i].create(hwnd_, i, dummy);
     }
 
     // Apply initial layout.
@@ -269,8 +266,45 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     }
                     return 0;
                 }
-                default:
+                default: {
+                    // Slot Add buttons: IDC_SLOT_ADD_BASE + 0..3
+                    int id = static_cast<int>(LOWORD(wParam));
+                    if (id >= IDC_SLOT_ADD_BASE && id < IDC_SLOT_ADD_BASE + 4) {
+                        int i = id - IDC_SLOT_ADD_BASE;
+                        std::string uri;
+                        if (PluginDialog::showModal(hwnd_, &liveEngine_, &uri)) {
+                            liveEngine_.addPlugin(i + 1, uri);
+                            std::string name;
+                            json all = liveEngine_.getAvailablePlugins();
+                            if (all.contains(uri) &&
+                                all[uri].contains("name") &&
+                                all[uri]["name"].is_string())
+                                name = all[uri]["name"].get<std::string>();
+                            else
+                                name = uri;
+                            slots_[i].setPlugin(name.c_str());
+                            slotEnabled_[i] = true;
+                        }
+                        return 0;
+                    }
+                    // Slot Bypass buttons: IDC_SLOT_BYPASS_BASE + 0..3
+                    if (id >= IDC_SLOT_BYPASS_BASE && id < IDC_SLOT_BYPASS_BASE + 4) {
+                        int i = id - IDC_SLOT_BYPASS_BASE;
+                        slotEnabled_[i] = !slotEnabled_[i];
+                        liveEngine_.setPluginEnabled(i + 1, slotEnabled_[i]);
+                        slots_[i].setBypassVisual(!slotEnabled_[i]);
+                        return 0;
+                    }
+                    // Slot Delete buttons: IDC_SLOT_DELETE_BASE + 0..3
+                    if (id >= IDC_SLOT_DELETE_BASE && id < IDC_SLOT_DELETE_BASE + 4) {
+                        int i = id - IDC_SLOT_DELETE_BASE;
+                        liveEngine_.deletePlugin(i + 1);
+                        slots_[i].clearPlugin();
+                        slotEnabled_[i] = true;
+                        return 0;
+                    }
                     break;
+                }
             }
             break;
         }

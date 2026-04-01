@@ -6,6 +6,7 @@
 #include "AppSettings.h"
 #include "AudioEngine.h"
 #include "ControlBar.h"
+#include "PluginDialog.h"
 #include "PluginSlot.h"
 #include "WasapiDeviceEnum.h"
 #include "../LiveEffectEngine.h"
@@ -42,4 +43,5 @@ private:
     AudioEngine                        audioEngine_;
     ControlBar                         controlBar_;
     PluginSlot                         slots_[4];
+    bool                               slotEnabled_[4] = { true, true, true, true };
 };
