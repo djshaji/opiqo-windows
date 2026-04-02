@@ -94,9 +94,9 @@ bool MainWindow::create(int nCmdShow) {
     // Wire the DSP engine into the audio pipeline.
     audioEngine_.setEngine(&liveEngine_);
 
-    // Status bar along the top of the client area.
-    // NOTE: STATUSCLASSNAME auto-docks to the bottom when sent WM_SIZE;
-    // doLayout() repositions it to the top via SetWindowPos.
+    // Status bar along the bottom of the client area.
+    // STATUSCLASSNAME docks itself to the bottom automatically when it
+    // receives WM_SIZE; doLayout() triggers this by sending WM_SIZE to it.
     statusBar_ = CreateWindowExA(
         0, STATUSCLASSNAME, nullptr,
         WS_CHILD | WS_VISIBLE,
@@ -154,23 +154,26 @@ void MainWindow::doLayout() {
     int totalW = rc.right;
     int totalH = rc.bottom;
 
-    // Status bar: pin to the top of the client area at a fixed height.
-    // Do NOT send WM_SIZE to STATUSCLASSNAME — it would re-dock itself to the
-    // bottom of the parent and fight with SetWindowPos on every resize.
+    // Status bar: STATUSCLASSNAME docks itself to the bottom of the parent
+    // when it receives WM_SIZE. Send WM_SIZE explicitly since we handle the
+    // parent's WM_SIZE ourselves (without calling DefWindowProc on the parent).
     int sbH = kStatusHeight;
     if (statusBar_) {
-        SetWindowPos(statusBar_, nullptr,
-                     0, 0, totalW, sbH,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-        // Update the part-width so the right half stretches to window edge.
+        SendMessage(statusBar_, WM_SIZE, 0, 0);
+        // Update part widths so the right half stretches to the window edge.
         int parts[2] = { totalW / 2, -1 };
         SendMessage(statusBar_, SB_SETPARTS, 2,
                     reinterpret_cast<LPARAM>(parts));
+        // Read back the actual height chosen by STATUSCLASSNAME (theme/DPI-aware).
+        RECT sbrc = {};
+        GetWindowRect(statusBar_, &sbrc);
+        int actualH = sbrc.bottom - sbrc.top;
+        if (actualH > 0) sbH = actualH;
     }
 
-    // Slot grid occupies the area between status bar (top) and control bar (bottom).
-    int slotAreaTop = sbH;
-    int slotAreaBot = totalH - kBarHeight;
+    // Slot grid: full width, from top of client area to where the control bar starts.
+    int slotAreaTop = 0;
+    int slotAreaBot = totalH - kBarHeight - sbH;
     if (slotAreaBot < slotAreaTop) slotAreaBot = slotAreaTop; // guard: very small window
     int slotAreaH = slotAreaBot - slotAreaTop;
     int halfW = totalW / 2;
@@ -185,8 +188,8 @@ void MainWindow::doLayout() {
     for (int i = 0; i < 4; ++i)
         slots_[i].resize(slotBounds[i]);
 
-    // Control bar along the bottom.
-    RECT barBounds = { 0, slotAreaBot, totalW, totalH };
+    // Control bar: sits directly above the status bar.
+    RECT barBounds = { 0, slotAreaBot, totalW, slotAreaBot + kBarHeight };
     controlBar_.resize(barBounds);
 }
 
@@ -388,10 +391,32 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                                 controlBar_.setGainValue(
                                     static_cast<int>(g * 100.0f + 0.5f));
                             }
+                            json all = liveEngine_.getAvailablePlugins();
                             for (int s = 1; s <= 4; ++s) {
                                 std::string key = "plugin" + std::to_string(s);
-                                if (preset.contains(key) && preset[key].is_object())
-                                    liveEngine_.applyPreset(s, preset[key]);
+                                if (!preset.contains(key) || !preset[key].is_object())
+                                    continue;
+                                const json& slotPreset = preset[key];
+                                if (slotPreset.contains("uri") && slotPreset["uri"].is_string()) {
+                                    std::string uri = slotPreset["uri"].get<std::string>();
+                                    int result = liveEngine_.addPlugin(s, uri);
+                                    if (result < 0) {
+                                        MessageBoxA(hwnd_,
+                                            ("Failed to load plugin for slot "
+                                             + std::to_string(s) + ":\n" + uri).c_str(),
+                                            "Opiqo \u2014 Import", MB_OK | MB_ICONWARNING);
+                                        continue;
+                                    }
+                                    std::string name = uri;
+                                    if (all.contains(uri) && all[uri].contains("name")
+                                            && all[uri]["name"].is_string())
+                                        name = all[uri]["name"].get<std::string>();
+                                    slots_[s - 1].setPlugin(name.c_str());
+                                    slotEnabled_[s - 1] = true;
+                                }
+                                liveEngine_.applyPreset(s, slotPreset);
+                                slots_[s - 1].clearParameterPanel();
+                                slots_[s - 1].buildParameterPanel(&liveEngine_);
                             }
                         } catch (...) {
                             MessageBoxA(hwnd_, "Preset file is corrupt or unreadable.",

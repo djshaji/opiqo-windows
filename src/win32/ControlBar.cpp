@@ -134,12 +134,18 @@ void ControlBar::enableRecordButton(bool enable) {
 }
 
 void ControlBar::resize(const RECT& bounds) {
-    if (hwnd_)
-        MoveWindow(hwnd_,
-                   bounds.left, bounds.top,
-                   bounds.right - bounds.left,
-                   bounds.bottom - bounds.top,
-                   TRUE);
+    if (!hwnd_) return;
+    const int w = bounds.right - bounds.left;
+    const int h = bounds.bottom - bounds.top;
+    MoveWindow(hwnd_, bounds.left, bounds.top, w, h, TRUE);
+
+    // Reposition child controls at their fixed offsets within the container.
+    // Positions match the creation-time layout in create().
+    if (powerButton_)  MoveWindow(powerButton_,  4,   4,  80,  28, TRUE);
+    if (gainSlider_)   MoveWindow(gainSlider_,   92,  8,  120, 20, TRUE);
+    if (recordButton_) MoveWindow(recordButton_, 220, 4,  80,  28, TRUE);
+    if (formatCombo_)  MoveWindow(formatCombo_,  308, 4,  100, 120, TRUE);
+    if (qualityCombo_) MoveWindow(qualityCombo_, 416, 4,  90,  120, TRUE);
 }
 
 HWND ControlBar::hwnd() const {

@@ -446,6 +446,9 @@ json LiveEffectEngine::getPreset(int plugin) {
     }
 
     json preset = {};
+    const LilvNode* uriNode = lilv_plugin_get_uri(p->plugin_);
+    if (uriNode)
+        preset["uri"] = lilv_node_as_string(uriNode);
     for (const auto& port : p->ports_) {
         preset[port.symbol] = port.control;
     }
