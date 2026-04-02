@@ -17,6 +17,9 @@ public:
     // Returns the gain slider position in [0, 100].
     int gainValue() const;
 
+    // Programmatically reposition the gain slider (clamped to [0, 100]).
+    void setGainValue(int pos);
+
     // Returns the currently selected format index (0=WAV, 1=MP3, 2=OGG).
     int formatIndex() const;
 

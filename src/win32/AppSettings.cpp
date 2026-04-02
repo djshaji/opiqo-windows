@@ -32,6 +32,7 @@ AppSettings AppSettings::load() {
         s.exclusiveMode  = j.value("exclusiveMode",  false);
         s.recordFormat   = j.value("recordFormat",   0);
         s.recordQuality  = j.value("recordQuality",  0);
+        s.gain           = j.value("gain",            0.8f);
     } catch (...) {
         // Corrupt or unreadable — return defaults.
     }
@@ -54,6 +55,7 @@ void AppSettings::save() const {
     j["exclusiveMode"]  = exclusiveMode;
     j["recordFormat"]   = recordFormat;
     j["recordQuality"]  = recordQuality;
+    j["gain"]           = gain;
 
     std::ofstream f(path);
     if (f.is_open()) f << j.dump(4);

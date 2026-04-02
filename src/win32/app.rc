@@ -33,4 +33,8 @@ BEGIN
     BEGIN
         MENUITEM "Open Settings", IDM_SETTINGS_OPEN
     END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About Opiqo...", IDM_HELP_ABOUT
+    END
 END

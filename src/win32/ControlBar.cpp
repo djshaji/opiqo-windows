@@ -99,6 +99,13 @@ int ControlBar::gainValue() const {
     return static_cast<int>(SendMessage(gainSlider_, TBM_GETPOS, 0, 0));
 }
 
+void ControlBar::setGainValue(int pos) {
+    if (!gainSlider_) return;
+    if (pos < 0)   pos = 0;
+    if (pos > 100) pos = 100;
+    SendMessage(gainSlider_, TBM_SETPOS, TRUE, static_cast<LPARAM>(pos));
+}
+
 int ControlBar::formatIndex() const {
     if (!formatCombo_) return 0;
     int sel = static_cast<int>(SendMessage(formatCombo_, CB_GETCURSEL, 0, 0));

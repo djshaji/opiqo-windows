@@ -36,6 +36,15 @@ private:
     // Recomputes and applies child-window positions for the current client size.
     void doLayout();
 
+    // Called when the gain slider position changes.
+    void onGainChanged();
+
+    // Subclass proc for the ControlBar container — forwards WM_HSCROLL.
+    static LRESULT CALLBACK ControlBarSubclassProc(HWND hwnd, UINT msg,
+                                                   WPARAM wParam, LPARAM lParam,
+                                                   UINT_PTR subclassId,
+                                                   DWORD_PTR refData);
+
     HINSTANCE instance_ = nullptr;
     HWND      hwnd_     = nullptr;
     HWND      statusBar_ = nullptr;

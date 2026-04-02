@@ -117,9 +117,16 @@ bool MainWindow::create(int nCmdShow) {
     {
         RECT dummy = {};
         controlBar_.create(hwnd_, dummy);
+        // Forward WM_HSCROLL from the ControlBar container to this window.
+        SetWindowSubclass(controlBar_.hwnd(), ControlBarSubclassProc,
+                          1 /*subclassId*/, reinterpret_cast<DWORD_PTR>(this));
         controlBar_.setFormatIndex(settings_.recordFormat);
         controlBar_.showQualityCombo(settings_.recordFormat != 0);
         controlBar_.enableRecordButton(false); // enabled when engine reaches Running
+        // Sync gain slider and engine to the persisted setting.
+        if (liveEngine_.gain)
+            *liveEngine_.gain = settings_.gain;
+        controlBar_.setGainValue(static_cast<int>(settings_.gain * 100.0f + 0.5f));
         for (int i = 0; i < 4; ++i)
             slots_[i].create(hwnd_, i, dummy);
     }
@@ -280,6 +287,26 @@ void MainWindow::onEngineError() {
     }
 }
 
+LRESULT CALLBACK MainWindow::ControlBarSubclassProc(
+        HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR /*subclassId*/, DWORD_PTR refData) {
+    if (msg == WM_HSCROLL) {
+        MainWindow* self = reinterpret_cast<MainWindow*>(refData);
+        if (self)
+            self->onGainChanged();
+        return 0;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void MainWindow::onGainChanged() {
+    if (!liveEngine_.gain) return;
+    int pos = controlBar_.gainValue();           // [0, 100]
+    float g = static_cast<float>(pos) / 100.0f;
+    *liveEngine_.gain = g;
+    settings_.gain    = g;  // flushed to disk by WM_DESTROY / settings_.save()
+}
+
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT message,
                                      WPARAM wParam, LPARAM lParam) {
     MainWindow* self = nullptr;
@@ -306,6 +333,12 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             switch (LOWORD(wParam)) {
                 case IDM_FILE_EXIT:
                     PostMessage(hwnd_, WM_CLOSE, 0, 0);
+                    return 0;
+                case IDM_HELP_ABOUT:
+                    MessageBoxA(hwnd_,
+                        "Opiqo Windows Host\nVersion 1.0"
+                        "\n\nLV2 audio plugin host with WASAPI duplex audio.",
+                        "About Opiqo", MB_OK | MB_ICONINFORMATION);
                     return 0;
                 case IDM_FILE_EXPORT_PRESET: {
                     char filePath[MAX_PATH] = {};
@@ -348,8 +381,13 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             json preset;
                             f >> preset;
                             if (preset.contains("gain") && preset["gain"].is_number()
-                                    && liveEngine_.gain)
+                                    && liveEngine_.gain) {
                                 *liveEngine_.gain = preset["gain"].get<float>();
+                                float g = *liveEngine_.gain;
+                                settings_.gain = g;
+                                controlBar_.setGainValue(
+                                    static_cast<int>(g * 100.0f + 0.5f));
+                            }
                             for (int s = 1; s <= 4; ++s) {
                                 std::string key = "plugin" + std::to_string(s);
                                 if (preset.contains(key) && preset[key].is_object())
@@ -588,7 +626,28 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        case WM_CLOSE:
+            if (recordingFd_ >= 0) {
+                int choice = MessageBoxA(hwnd_,
+                    "A recording is in progress. Stop recording and close?",
+                    "Opiqo \u2014 Recording Active", MB_YESNO | MB_ICONWARNING);
+                if (choice != IDYES)
+                    return 0;  // User cancelled — leave app running.
+                liveEngine_.stopRecording();
+                _close(recordingFd_);
+                recordingFd_ = -1;
+                controlBar_.setRecordState(false);
+            }
+            DestroyWindow(hwnd_);
+            return 0;
+
         case WM_DESTROY:
+            // Safety net: finalise any open recording (normally handled in WM_CLOSE).
+            if (recordingFd_ >= 0) {
+                liveEngine_.stopRecording();
+                _close(recordingFd_);
+                recordingFd_ = -1;
+            }
             settings_.save();
             audioEngine_.stop();
             deviceEnum_.reset();   // Release COM objects before CoUninitialize.
