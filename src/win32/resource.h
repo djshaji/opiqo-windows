@@ -27,7 +27,8 @@
 //   slot s, port index p  ->  IDC_PARAM_BASE + s * 500 + p
 #define IDC_PARAM_BASE 52000
 
-#define IDT_ENGINE_STATE 1
+#define IDT_ENGINE_STATE    1
+#define IDT_ENGINE_WATCHDOG 2
 
 #define IDD_SETTINGS            200
 

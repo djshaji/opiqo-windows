@@ -571,13 +571,20 @@ void LiveEffectEngine::stopRecording() {
 
 int LiveEffectEngine::process (float* input, float* output, int frames) {
     queueManager.process(input, output, frames);
-    
-    if (bypass) {
+
+    // Fast-path: UI thread is mid plugin-graph mutation — pass audio through.
+    if (bypass.load(std::memory_order_acquire)) {
         memcpy(output, input, sizeof(float) * frames * mOutputChannelCount);
         return 0;
     }
 
-    std::lock_guard<std::mutex> lock(pluginMutex);
+    // Non-blocking acquire. If the UI thread holds pluginMutex (setValue,
+    // setPluginEnabled) skip this callback so the audio thread never stalls.
+    if (!pluginMutex.try_lock()) {
+        memcpy(output, input, sizeof(float) * frames * mOutputChannelCount);
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(pluginMutex, std::adopt_lock);
 
     // Process plugins in order
     for (int i = 1; i <= 4; i++) {

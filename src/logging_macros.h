@@ -20,12 +20,24 @@
 #ifndef __SAMPLE_ANDROID_DEBUG_H__
 #define __SAMPLE_ANDROID_DEBUG_H__
 
+#ifdef _WIN32
+// Route all log output through the Windows rate-limited sink.
+// win_logging.h is in src/win32/ which is on the include path for the Windows build.
+#include "win32/win_logging.h"
+#define LOGV(...) opiqo_win_log(__FILE__, __LINE__, "V", __VA_ARGS__)
+#define LOGD(...) opiqo_win_log(__FILE__, __LINE__, "D", __VA_ARGS__)
+#define LOGI(...) opiqo_win_log(__FILE__, __LINE__, "I", __VA_ARGS__)
+#define LOGW(...) opiqo_win_log(__FILE__, __LINE__, "W", __VA_ARGS__)
+#define LOGE(...) opiqo_win_log(__FILE__, __LINE__, "E", __VA_ARGS__)
+#define LOGF(...) opiqo_win_log(__FILE__, __LINE__, "F", __VA_ARGS__)
+#else
 #define LOGV(...) printf(__VA_ARGS__); printf("\n");
 #define LOGD(...) printf(__VA_ARGS__); printf("\n");
 #define LOGI(...) printf(__VA_ARGS__); printf("\n");
 #define LOGW(...) printf(__VA_ARGS__); printf("\n");
 #define LOGE(...) printf(__VA_ARGS__); printf("\n");
 #define LOGF(...) printf(__VA_ARGS__); printf("\n");
+#endif
 
 #define HERE printf("[here]: %s:%d\n", __FILE__, __LINE__);
 #undef IN

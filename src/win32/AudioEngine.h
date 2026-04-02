@@ -46,6 +46,9 @@ public:
     int32_t     blockSize()    const;
     std::string errorMessage() const;
 
+    // Number of WASAPI DATA_DISCONTINUITY (dropout) events since last start().
+    uint64_t    dropoutCount() const;
+
 private:
     // Audio-thread entry point.
     void audioThreadProc();

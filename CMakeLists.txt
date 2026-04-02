@@ -47,6 +47,7 @@ set(WIN32_UI_SOURCES
     src/win32/SettingsDialog.cpp
     src/win32/AudioEngine.cpp
     src/win32/WasapiDeviceEnum.cpp
+    src/win32/win_logging.cpp
     src/main_win32.cpp
     src/win32/app.rc
 )

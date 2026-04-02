@@ -17,6 +17,7 @@
 #ifndef OBOE_LIVEEFFECTENGINE_H
 #define OBOE_LIVEEFFECTENGINE_H
 
+#include <atomic>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -57,7 +58,7 @@ public:
     int32_t sampleRate = 48000 ;
     float * gain = nullptr ;
     int pluginCount = 0 ;
-    bool bypass = false ;
+    std::atomic<bool> bypass { false };
     int blockSize = 4096 ;
 
     void setValue (int p, int index, float value);

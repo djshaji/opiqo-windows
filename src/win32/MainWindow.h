@@ -27,6 +27,9 @@ private:
     // Called (on the UI thread) whenever the engine state poll fires.
     void onEngineStatePoll();
 
+    // Called when the watchdog detects the engine entered State::Error mid-session.
+    void onEngineError();
+
     // Called (on the UI thread) whenever the device topology changes.
     void onDeviceListChanged();
 

@@ -194,6 +194,8 @@ void MainWindow::onEngineStatePoll() {
         // Successfully started — leave toggle ON.
         controlBar_.setPowerState(true);
         controlBar_.enableRecordButton(true);
+        // Start a long-period watchdog to detect mid-session device loss.
+        SetTimer(hwnd_, IDT_ENGINE_WATCHDOG, 500, nullptr);
     } else {
         // Error or unexpected state — revert toggle and report.
         controlBar_.setPowerState(false);
@@ -226,6 +228,55 @@ void MainWindow::onDeviceListChanged() {
                      reinterpret_cast<LPARAM>(inName.c_str()));
         SendMessageA(statusBar_, SB_SETTEXTA, 1,
                      reinterpret_cast<LPARAM>(outName.c_str()));
+    }
+
+    // If the engine dropped into Error (device pulled), trigger recovery.
+    if (audioEngine_.state() == AudioEngine::State::Error) {
+        KillTimer(hwnd_, IDT_ENGINE_WATCHDOG);
+        onEngineError();
+    }
+}
+
+void MainWindow::onEngineError() {
+    // Stop any active recording before interacting with the user.
+    if (recordingFd_ >= 0) {
+        liveEngine_.stopRecording();
+        _close(recordingFd_);
+        recordingFd_ = -1;
+        controlBar_.setRecordState(false);
+    }
+
+    controlBar_.setPowerState(false);
+    controlBar_.enableRecordButton(false);
+
+    // Show the error in the input status bar pane.
+    std::string errMsg = audioEngine_.errorMessage();
+    if (errMsg.empty()) errMsg = "Audio device lost.";
+    if (statusBar_)
+        SendMessageA(statusBar_, SB_SETTEXTA, 0,
+                     reinterpret_cast<LPARAM>(("Error: " + errMsg).c_str()));
+
+    // Offer automatic restart on the resolved default device.
+    int choice = MessageBoxA(hwnd_,
+        (errMsg + "\n\nAttempt to restart with the default device?").c_str(),
+        "Opiqo \u2014 Audio Error", MB_YESNO | MB_ICONWARNING);
+
+    if (choice == IDYES) {
+        onDeviceListChanged();  // Resolve saved IDs against current device list.
+        bool launched = audioEngine_.start(
+            settings_.sampleRate,
+            settings_.blockSize,
+            settings_.inputDeviceId,
+            settings_.outputDeviceId,
+            settings_.exclusiveMode);
+        if (!launched) {
+            controlBar_.setPowerState(false);
+            MessageBoxA(hwnd_, audioEngine_.errorMessage().c_str(),
+                        "Opiqo \u2014 Engine Error", MB_OK | MB_ICONERROR);
+        } else {
+            controlBar_.setPowerState(true);
+            SetTimer(hwnd_, IDT_ENGINE_STATE, 50, nullptr);
+        }
     }
 }
 
@@ -324,6 +375,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             (audioEngine_.state() == AudioEngine::State::Running);
                         if (wasRunning) {
                             audioEngine_.stop();
+                            KillTimer(hwnd_, IDT_ENGINE_WATCHDOG);
                             controlBar_.setPowerState(false);
                             controlBar_.enableRecordButton(false);
                         }
@@ -373,6 +425,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     } else {
                         audioEngine_.stop();
                         // stop() is synchronous — state is Off when it returns.
+                        KillTimer(hwnd_, IDT_ENGINE_WATCHDOG);
                         controlBar_.setPowerState(false);
                         controlBar_.enableRecordButton(false);
                     }
@@ -495,6 +548,28 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case WM_TIMER:
             if (wParam == IDT_ENGINE_STATE) {
                 onEngineStatePoll();
+                return 0;
+            }
+            if (wParam == IDT_ENGINE_WATCHDOG) {
+                if (audioEngine_.state() == AudioEngine::State::Error) {
+                    KillTimer(hwnd_, IDT_ENGINE_WATCHDOG);
+                    onEngineError();
+                } else if (statusBar_) {
+                    // Refresh dropout count in the output pane.
+                    uint64_t d = audioEngine_.dropoutCount();
+                    std::string outText = "Out: ";
+                    auto outputs = deviceEnum_->enumerateOutputDevices();
+                    for (const auto& dev : outputs)
+                        if (dev.id == settings_.outputDeviceId) {
+                            outText += dev.friendlyName;
+                            break;
+                        }
+                    if (d > 0)
+                        outText += "  [" + std::to_string(d)
+                                   + (d == 1 ? " dropout" : " dropouts") + "]";
+                    SendMessageA(statusBar_, SB_SETTEXTA, 1,
+                                 reinterpret_cast<LPARAM>(outText.c_str()));
+                }
                 return 0;
             }
             break;

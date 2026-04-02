@@ -51,6 +51,7 @@ struct AudioEngine::Impl {
     std::thread              thread;
     std::atomic<AudioEngine::State> state { AudioEngine::State::Off };
     std::string              errorMsg;
+    std::atomic<uint64_t>    dropouts { 0 };
 };
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,10 @@ int32_t AudioEngine::sampleRate() const { return impl_->sampleRate; }
 int32_t AudioEngine::blockSize()  const { return impl_->blockSize;  }
 
 std::string AudioEngine::errorMessage() const { return impl_->errorMsg; }
+
+uint64_t AudioEngine::dropoutCount() const {
+    return impl_->dropouts.load(std::memory_order_relaxed);
+}
 
 bool AudioEngine::start(int32_t sampleRate,
                         int32_t blockSize,
@@ -359,6 +364,9 @@ void AudioEngine::audioThreadProc() {
     DWORD taskIndex = 0;
     HANDLE mmHandle = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
 
+    // Reset dropout counter for this session.
+    impl_->dropouts.store(0, std::memory_order_relaxed);
+
     impl_->state = AudioEngine::State::Running;
 
     // -----------------------------------------------------------------------
@@ -415,6 +423,9 @@ bool AudioEngine::runLoop() {
             UINT32 renChannels = impl_->renderFmt->nChannels;
 
             bool silent = (captureFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+
+            if (captureFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
+                impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
 
             if (silent) {
                 std::fill(impl_->inBuf.begin(),
