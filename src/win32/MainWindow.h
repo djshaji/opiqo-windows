@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
 #include <windows.h>
 
 #include "AppSettings.h"
@@ -39,6 +41,11 @@ private:
     // Called when the gain slider position changes.
     void onGainChanged();
 
+    // --- Stress-test helpers ---
+    void startStressTest();
+    void stopStressTest();
+    void stressTestTick();
+
     // Subclass proc for the ControlBar container — forwards WM_HSCROLL.
     static LRESULT CALLBACK ControlBarSubclassProc(HWND hwnd, UINT msg,
                                                    WPARAM wParam, LPARAM lParam,
@@ -57,4 +64,10 @@ private:
     PluginSlot                         slots_[4];
     bool                               slotEnabled_[4] = { true, true, true, true };
     int                                recordingFd_    = -1;
+
+    // --- Stress-test state ---
+    std::vector<std::string> stressUris_;
+    int                      stressIndex_  = 0;
+    bool                     stressAdded_  = false;
+    bool                     stressActive_ = false;
 };

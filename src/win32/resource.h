@@ -30,6 +30,9 @@
 
 #define IDT_ENGINE_STATE    1
 #define IDT_ENGINE_WATCHDOG 2
+#define IDT_STRESS_TEST     3
+
+#define IDM_DEBUG_STRESS_TEST 40010
 
 #define IDD_SETTINGS            200
 

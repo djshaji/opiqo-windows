@@ -7,6 +7,7 @@
 #include <string>
 #include "resource.h"
 #include "../FileWriter.h"
+#include "../logging_macros.h"
 #include "SettingsDialog.h"
 
 // Posted from the COM notification thread; handled on the UI thread.
@@ -310,6 +311,100 @@ void MainWindow::onGainChanged() {
     settings_.gain    = g;  // flushed to disk by WM_DESTROY / settings_.save()
 }
 
+// ---------------------------------------------------------------------------
+// Stress-test helpers
+// ---------------------------------------------------------------------------
+
+void MainWindow::startStressTest() {
+    json all = liveEngine_.getAvailablePlugins();
+    stressUris_.clear();
+    for (auto it = all.begin(); it != all.end(); ++it)
+        stressUris_.push_back(it.key());
+
+    if (stressUris_.empty()) {
+        MessageBoxA(hwnd_, "No plugins found — nothing to stress test.",
+                    "Debug", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    stressIndex_  = 0;
+    stressAdded_  = false;
+    stressActive_ = true;
+
+    HMENU hMenu = GetMenu(hwnd_);
+    if (hMenu)
+        CheckMenuItem(hMenu, IDM_DEBUG_STRESS_TEST, MF_BYCOMMAND | MF_CHECKED);
+
+    LOGI("StressTest started — %zu plugins", stressUris_.size());
+    SetTimer(hwnd_, IDT_STRESS_TEST, 100, nullptr);
+}
+
+void MainWindow::stopStressTest() {
+    KillTimer(hwnd_, IDT_STRESS_TEST);
+    stressActive_ = false;
+
+    if (stressAdded_) {
+        liveEngine_.deletePlugin(1);
+        slots_[0].clearParameterPanel();
+        slots_[0].clearPlugin();
+        stressAdded_ = false;
+    }
+
+    HMENU hMenu = GetMenu(hwnd_);
+    if (hMenu)
+        CheckMenuItem(hMenu, IDM_DEBUG_STRESS_TEST, MF_BYCOMMAND | MF_UNCHECKED);
+
+    int total = static_cast<int>(stressUris_.size());
+    LOGI("StressTest stopped — %d iterations completed",
+         stressIndex_ / (total > 0 ? total : 1));
+}
+
+void MainWindow::stressTestTick() {
+    if (stressUris_.empty()) { stopStressTest(); return; }
+
+    const std::string& uri = stressUris_[stressIndex_];
+
+    SYSTEMTIME st = {};
+    GetLocalTime(&st);
+
+    if (!stressAdded_) {
+        // ADD phase
+        LOGI("[%02d:%02d:%02d.%03d] StressTest ADD  [%d] %s",
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+             stressIndex_, uri.c_str());
+
+        int result = liveEngine_.addPlugin(1, uri);
+        if (result == 0) {
+            json all = liveEngine_.getAvailablePlugins();
+            std::string name = uri;
+            if (all.contains(uri) && all[uri].contains("name")
+                    && all[uri]["name"].is_string())
+                name = all[uri]["name"].get<std::string>();
+            slots_[0].setPlugin(name.c_str());
+            slots_[0].buildParameterPanel(&liveEngine_);
+            stressAdded_ = true;
+        } else {
+            LOGW("[StressTest] addPlugin failed (result=%d) for %s",
+                 result, uri.c_str());
+            stressIndex_ = (stressIndex_ + 1)
+                           % static_cast<int>(stressUris_.size());
+        }
+    } else {
+        // DELETE phase
+        LOGI("[%02d:%02d:%02d.%03d] StressTest DEL  [%d] %s",
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+             stressIndex_, uri.c_str());
+
+        liveEngine_.deletePlugin(1);
+        slots_[0].clearParameterPanel();
+        slots_[0].clearPlugin();
+        stressAdded_ = false;
+
+        stressIndex_ = (stressIndex_ + 1)
+                       % static_cast<int>(stressUris_.size());
+    }
+}
+
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT message,
                                      WPARAM wParam, LPARAM lParam) {
     MainWindow* self = nullptr;
@@ -425,8 +520,10 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     }
                     return 0;
                 }
-                case IDM_SETTINGS_OPEN: {
-                    if (recordingFd_ >= 0) {
+                case IDM_DEBUG_STRESS_TEST:
+                    if (stressActive_) stopStressTest(); else startStressTest();
+                    return 0;
+                case IDM_SETTINGS_OPEN: {                    if (recordingFd_ >= 0) {
                         MessageBoxA(hwnd_,
                                     "Stop recording before changing audio settings.",
                                     "Opiqo", MB_OK | MB_ICONINFORMATION);
@@ -611,6 +708,10 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case WM_TIMER:
             if (wParam == IDT_ENGINE_STATE) {
                 onEngineStatePoll();
+                return 0;
+            }
+            if (wParam == IDT_STRESS_TEST) {
+                stressTestTick();
                 return 0;
             }
             if (wParam == IDT_ENGINE_WATCHDOG) {

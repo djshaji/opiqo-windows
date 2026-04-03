@@ -298,7 +298,7 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
         }
 
         // probe atom path writable ports
-        printf("\n== patch:writable parameters (lv2:Parameter) ==\n");
+        // printf("\n== patch:writable parameters (lv2:Parameter) ==\n");
         const LilvNodes* writables = lilv_plugin_get_value(p, patch_writable);
         json writableParams = {};
         bool hasWritableParams = false ;

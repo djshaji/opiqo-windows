@@ -462,6 +462,30 @@ src/win32/app.rc.res:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/app.rc.res
 .PHONY : src/win32/app.rc.res
 
+src/win32/win_logging.obj: src/win32/win_logging.cpp.obj
+.PHONY : src/win32/win_logging.obj
+
+# target to build an object file
+src/win32/win_logging.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/win_logging.cpp.obj
+.PHONY : src/win32/win_logging.cpp.obj
+
+src/win32/win_logging.i: src/win32/win_logging.cpp.i
+.PHONY : src/win32/win_logging.i
+
+# target to preprocess a source file
+src/win32/win_logging.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/win_logging.cpp.i
+.PHONY : src/win32/win_logging.cpp.i
+
+src/win32/win_logging.s: src/win32/win_logging.cpp.s
+.PHONY : src/win32/win_logging.s
+
+# target to generate assembly for a file
+src/win32/win_logging.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/win_logging.cpp.s
+.PHONY : src/win32/win_logging.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -512,6 +536,9 @@ help:
 	@echo "... src/win32/WasapiDeviceEnum.i"
 	@echo "... src/win32/WasapiDeviceEnum.s"
 	@echo "... src/win32/app.res"
+	@echo "... src/win32/win_logging.obj"
+	@echo "... src/win32/win_logging.i"
+	@echo "... src/win32/win_logging.s"
 .PHONY : help
 
 

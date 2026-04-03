@@ -110,6 +110,7 @@ void opiqo_win_log(const char* file, int line, const char* level,
     line_buf[sizeof(line_buf) - 1] = '\0';
 
     OutputDebugStringA(line_buf);
+    fputs(line_buf, stderr);
 
     std::lock_guard<std::mutex> lk(s_logMutex);
     if (s_logFile) {

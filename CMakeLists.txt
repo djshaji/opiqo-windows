@@ -112,4 +112,5 @@ target_link_libraries(opiqo PRIVATE
     avrt
     comctl32
     comdlg32
+    dbghelp
 )
