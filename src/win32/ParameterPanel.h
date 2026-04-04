@@ -85,6 +85,7 @@ private:
     int               baseId_   = 0;
     int               scrollY_  = 0;   // current vertical scroll offset (px)
     int               contentH_ = 0;   // total height of all rows (px)
+    int               rowH_     = 28;  // scaled row height, set in build()
 
     std::vector<ControlEntry> entries_;
 };

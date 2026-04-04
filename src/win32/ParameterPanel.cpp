@@ -103,7 +103,16 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
 
     ShowWindow(hwnd_, SW_SHOW);
 
-    int  y      = kPadY;
+    // Scale layout constants to the panel's current monitor DPI.
+    const UINT dpi  = GetDpiForWindow(hwnd_);
+    const int rowH  = MulDiv(kRowH,   dpi, 96);
+    const int lblW  = MulDiv(kLabelW, dpi, 96);
+    const int ctrlW = MulDiv(kCtrlW,  dpi, 96);
+    const int padX  = MulDiv(kPadX,   dpi, 96);
+    const int padY  = MulDiv(kPadY,   dpi, 96);
+    rowH_ = rowH;  // store for scroll-step use
+
+    int  y      = padY;
     UINT nextId = static_cast<UINT>(baseId_);
 
     for (const auto& pi : ports) {
@@ -120,10 +129,10 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
         e.labelHwnd = CreateWindowExA(
             0, "STATIC", pi.label.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-            kPadX, y, kLabelW, kRowH - 2,
+            padX, y, lblW, rowH - 2,
             hwnd_, nullptr, hInst, nullptr);
 
-        const int ctrlX = kLabelW + kPadX * 2;
+        const int ctrlX = lblW + padX * 2;
         const HMENU ctrlMenu =
             reinterpret_cast<HMENU>(static_cast<UINT_PTR>(e.controlId));
 
@@ -134,7 +143,7 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
                     e.controlHwnd = CreateWindowExA(
                         0, "COMBOBOX", nullptr,
                         WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWNLIST,
-                        ctrlX, y, kCtrlW, kRowH * 6,
+                        ctrlX, y, ctrlW, rowH * 6,
                         hwnd_, ctrlMenu, hInst, nullptr);
                     if (e.controlHwnd) {
                         for (const auto& sp : pi.scalePoints) {
@@ -157,7 +166,7 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
                     e.controlHwnd = CreateWindowExA(
                         0, TRACKBAR_CLASSA, nullptr,
                         WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                        ctrlX, y, kCtrlW, kRowH - 2,
+                        ctrlX, y, ctrlW, rowH - 2,
                         hwnd_, ctrlMenu, hInst, nullptr);
                     if (e.controlHwnd) {
                         SendMessage(e.controlHwnd, TBM_SETRANGEMIN, FALSE, 0);
@@ -177,7 +186,7 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
                 e.controlHwnd = CreateWindowExA(
                     0, "BUTTON", nullptr,
                     WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                    ctrlX, y, 20, kRowH - 2,
+                    ctrlX, y, MulDiv(20, dpi, 96), rowH - 2,
                     hwnd_, ctrlMenu, hInst, nullptr);
                 if (e.controlHwnd)
                     SendMessage(e.controlHwnd, BM_SETCHECK,
@@ -188,7 +197,7 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
                 e.controlHwnd = CreateWindowExA(
                     0, "BUTTON", "Trigger",
                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    ctrlX, y, 80, kRowH - 2,
+                    ctrlX, y, MulDiv(80, dpi, 96), rowH - 2,
                     hwnd_, ctrlMenu, hInst, nullptr);
                 break;
 
@@ -196,12 +205,12 @@ bool ParameterPanel::build(HWND parent, LiveEffectEngine* engine, int slot,
                 e.controlHwnd = CreateWindowExA(
                     0, "BUTTON", "Browse...",
                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    ctrlX, y, 80, kRowH - 2,
+                    ctrlX, y, MulDiv(80, dpi, 96), rowH - 2,
                     hwnd_, ctrlMenu, hInst, nullptr);
                 break;
         }
 
-        y += kRowH + kPadY;
+        y += rowH + padY;
         entries_.push_back(std::move(e));
     }
 
@@ -292,8 +301,8 @@ void ParameterPanel::onVScroll(UINT code, int thumbPos) {
     switch (code) {
         case SB_TOP:           newPos = si.nMin; break;
         case SB_BOTTOM:        newPos = si.nMax; break;
-        case SB_LINEUP:        newPos -= kRowH; break;
-        case SB_LINEDOWN:      newPos += kRowH; break;
+        case SB_LINEUP:        newPos -= rowH_; break;
+        case SB_LINEDOWN:      newPos += rowH_; break;
         case SB_PAGEUP:        newPos -= static_cast<int>(si.nPage); break;
         case SB_PAGEDOWN:      newPos += static_cast<int>(si.nPage); break;
         case SB_THUMBTRACK:
@@ -312,7 +321,7 @@ void ParameterPanel::onVScroll(UINT code, int thumbPos) {
 
 void ParameterPanel::onMouseWheel(int delta) {
     // Three rows per wheel notch
-    const int lines = -delta / WHEEL_DELTA * kRowH * 3;
+    const int lines = -delta / WHEEL_DELTA * rowH_ * 3;
     onVScroll(SB_THUMBTRACK, scrollY_ + lines);
 }
 

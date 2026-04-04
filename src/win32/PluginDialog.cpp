@@ -14,6 +14,7 @@ struct PluginDialogState {
     std::string*             selectedUri = nullptr;
     bool                     confirmed   = false;
     HWND                     listBox     = nullptr;
+    HFONT                    font        = nullptr;
 };
 
 static LRESULT CALLBACK PluginDlgWndProc(HWND hwnd, UINT msg,
@@ -54,6 +55,14 @@ static LRESULT CALLBACK PluginDlgWndProc(HWND hwnd, UINT msg,
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 w - 88, h - 36, 80, 26,
                 hwnd, reinterpret_cast<HMENU>(IDCANCEL), hInst, nullptr);
+
+            // Apply the shared UI font to all child controls.
+            if (state->font) {
+                EnumChildWindows(hwnd, [](HWND child, LPARAM lp) -> BOOL {
+                    SendMessage(child, WM_SETFONT, static_cast<WPARAM>(lp), TRUE);
+                    return TRUE;
+                }, reinterpret_cast<LPARAM>(state->font));
+            }
 
             return 0;
         }
@@ -102,7 +111,7 @@ static LRESULT CALLBACK PluginDlgWndProc(HWND hwnd, UINT msg,
 // ---------------------------------------------------------------------------
 
 bool PluginDialog::showModal(HWND parent, LiveEffectEngine* engine,
-                             std::string* selectedUri) {
+                             std::string* selectedUri, HFONT font) {
     if (!engine || !selectedUri) return false;
 
     json all = engine->getAvailablePlugins();
@@ -114,6 +123,7 @@ bool PluginDialog::showModal(HWND parent, LiveEffectEngine* engine,
 
     PluginDialogState state;
     state.selectedUri = selectedUri;
+    state.font        = font;
     for (auto it = all.begin(); it != all.end(); ++it) {
         state.uris.push_back(it.key());
         std::string name = it.key(); // fallback

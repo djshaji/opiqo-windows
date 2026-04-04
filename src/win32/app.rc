@@ -2,10 +2,14 @@
 #include <windows.h>
 #include "resource.h"
 
+// Embed the application manifest so Windows loads comctl32 v6 (visual styles).
+// RT_MANIFEST = 24, CREATEPROCESS_MANIFEST_RESOURCE_ID = 1.
+1 RT_MANIFEST "opiqo.manifest"
+
 IDD_SETTINGS DIALOG 0, 0, 300, 200
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Settings"
-FONT 8, "MS Shell Dlg"
+FONT 10, "MS Shell Dlg"
 BEGIN
     LTEXT           "Sample Rate:",  -1,                    10,  14, 60,  8
     COMBOBOX        IDC_SETTINGS_SAMPLERATE,               75,  12, 80,  60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP

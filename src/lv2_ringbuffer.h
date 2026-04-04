@@ -65,7 +65,11 @@ static inline lv2_ringbuffer_t* lv2_ringbuffer_create(size_t sz) {
 static inline void lv2_ringbuffer_free(lv2_ringbuffer_t* rb) {
 
     if (!rb) return;
+#ifdef aligned_free
+    aligned_free(rb->buf);
+#else
     std::free(rb->buf);
+#endif
     std::free(rb);
 }
 

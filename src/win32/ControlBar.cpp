@@ -16,11 +16,14 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
     if (!hwnd_)
         return false;
 
+    // Helper: scale a logical-96-dpi pixel value to the window's actual DPI.
+#define S(px) MulDiv((px), GetDpiForWindow(hwnd_), 96)
+
     // Power toggle — latching pushbutton.
     powerButton_ = CreateWindowExA(
         0, "BUTTON", "Power",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_PUSHLIKE,
-        4, 4, 80, 28,
+        S(4), S(4), S(80), S(28),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_POWER_TOGGLE)),
         hInst, nullptr);
@@ -29,7 +32,7 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
     gainSlider_ = CreateWindowExA(
         0, TRACKBAR_CLASSA, nullptr,
         WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-        92, 8, 120, 20,
+        S(92), S(8), S(120), S(20),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_GAIN_SLIDER)),
         hInst, nullptr);
@@ -42,7 +45,7 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
     recordButton_ = CreateWindowExA(
         0, "BUTTON", "Record",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_PUSHLIKE,
-        220, 4, 80, 28,
+        S(220), S(4), S(80), S(28),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_RECORD_TOGGLE)),
         hInst, nullptr);
@@ -51,7 +54,7 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
     formatCombo_ = CreateWindowExA(
         0, "COMBOBOX", nullptr,
         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-        308, 4, 100, 120,
+        S(308), S(4), S(100), S(120),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_FORMAT_COMBO)),
         hInst, nullptr);
@@ -66,7 +69,7 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
     qualityCombo_ = CreateWindowExA(
         0, "COMBOBOX", nullptr,
         WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
-        416, 4, 90, 120,
+        S(416), S(4), S(90), S(120),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_QUALITY_COMBO)),
         hInst, nullptr);
@@ -76,6 +79,8 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
         SendMessageA(qualityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Low"));
         SendMessageA(qualityCombo_, CB_SETCURSEL, 0, 0);
     }
+
+#undef S
 
     return powerButton_ != nullptr;
 }
@@ -139,13 +144,14 @@ void ControlBar::resize(const RECT& bounds) {
     const int h = bounds.bottom - bounds.top;
     MoveWindow(hwnd_, bounds.left, bounds.top, w, h, TRUE);
 
-    // Reposition child controls at their fixed offsets within the container.
-    // Positions match the creation-time layout in create().
-    if (powerButton_)  MoveWindow(powerButton_,  4,   4,  80,  28, TRUE);
-    if (gainSlider_)   MoveWindow(gainSlider_,   92,  8,  120, 20, TRUE);
-    if (recordButton_) MoveWindow(recordButton_, 220, 4,  80,  28, TRUE);
-    if (formatCombo_)  MoveWindow(formatCombo_,  308, 4,  100, 120, TRUE);
-    if (qualityCombo_) MoveWindow(qualityCombo_, 416, 4,  90,  120, TRUE);
+    // Reposition children scaled to the current monitor DPI.
+#define S(px) MulDiv((px), GetDpiForWindow(hwnd_), 96)
+    if (powerButton_)  MoveWindow(powerButton_,  S(4),   S(4), S(80),  S(28), TRUE);
+    if (gainSlider_)   MoveWindow(gainSlider_,   S(92),  S(8), S(120), S(20), TRUE);
+    if (recordButton_) MoveWindow(recordButton_, S(220), S(4), S(80),  S(28), TRUE);
+    if (formatCombo_)  MoveWindow(formatCombo_,  S(308), S(4), S(100), S(120),TRUE);
+    if (qualityCombo_) MoveWindow(qualityCombo_, S(416), S(4), S(90),  S(120),TRUE);
+#undef S
 }
 
 HWND ControlBar::hwnd() const {

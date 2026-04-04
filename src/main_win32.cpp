@@ -35,6 +35,15 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
+    // Enable per-monitor DPI awareness before any window is created.
+    // Loaded dynamically so the binary still runs on Windows 8.1 (where the
+    // function does not exist); on those systems we fall back to unaware mode.
+    using FnSetDpiCtx = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+    if (auto fn = reinterpret_cast<FnSetDpiCtx>(
+            GetProcAddress(GetModuleHandleA("user32.dll"),
+                           "SetProcessDpiAwarenessContext")))
+        fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     SetUnhandledExceptionFilter(crashHandler);
 
     // Try to load DrMingw for human-readable stack traces (optional, no-op if absent).

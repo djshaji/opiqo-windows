@@ -13,6 +13,9 @@ public:
     bool create(HWND parent, int slotIndex, const RECT& bounds);
     HWND hwnd() const;
 
+    // Returns true if a plugin is currently loaded in this slot.
+    bool hasPlugin() const { return bypassButton_ && IsWindowEnabled(bypassButton_); }
+
     // Set label to active plugin name and enable Bypass/Delete.
     void setPlugin(const char* name);
 

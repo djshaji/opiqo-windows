@@ -21,14 +21,16 @@ static constexpr int kMinHeight    = 650;
 MainWindow::MainWindow(HINSTANCE instance)
     : instance_(instance) {}
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    if (uiFont_) { DeleteObject(uiFont_); uiFont_ = nullptr; }
+}
 
 bool MainWindow::create(int nCmdShow) {
-    // Initialise common controls (required for TRACKBAR_CLASS used in
-    // ParameterPanel).
+    // Initialise common controls. ICC_STANDARD_CLASSES is required for
+    // comctl32 v6 to apply visual styles to BUTTON, STATIC, and EDIT controls.
     INITCOMMONCONTROLSEX iccex = {};
     iccex.dwSize = sizeof(iccex);
-    iccex.dwICC  = ICC_WIN95_CLASSES | ICC_BAR_CLASSES;
+    iccex.dwICC  = ICC_WIN95_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&iccex);
 
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)))
@@ -132,8 +134,10 @@ bool MainWindow::create(int nCmdShow) {
             slots_[i].create(hwnd_, i, dummy);
     }
 
-    // Apply initial layout.
+    // Apply initial layout and font.
     doLayout();
+    rebuildUiFont();
+    applyUiFont();
 
     ShowWindow(hwnd_, SW_SHOWMAXIMIZED);
     UpdateWindow(hwnd_);
@@ -147,6 +151,32 @@ int MainWindow::run() {
         DispatchMessage(&msg);
     }
     return static_cast<int>(msg.wParam);
+}
+
+// ---------------------------------------------------------------------------
+// Font helpers
+// ---------------------------------------------------------------------------
+
+void MainWindow::rebuildUiFont() {
+    if (uiFont_) { DeleteObject(uiFont_); uiFont_ = nullptr; }
+    // 10pt Segoe UI scaled to the window's current monitor DPI.
+    const UINT dpi = (hwnd_ && GetDpiForWindow(hwnd_) > 0)
+                   ? GetDpiForWindow(hwnd_) : 96;
+    uiFont_ = CreateFontA(
+        -MulDiv(10, static_cast<int>(dpi), 72), // negative = character height
+        0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        "Segoe UI");
+}
+
+void MainWindow::applyUiFont() {
+    if (!uiFont_ || !hwnd_) return;
+    // Walk every descendant child window and push the font.
+    EnumChildWindows(hwnd_, [](HWND child, LPARAM lp) -> BOOL {
+        SendMessage(child, WM_SETFONT, static_cast<WPARAM>(lp), TRUE);
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(uiFont_));
 }
 
 void MainWindow::doLayout() {
@@ -172,9 +202,12 @@ void MainWindow::doLayout() {
         if (actualH > 0) sbH = actualH;
     }
 
+    // Scale the control-bar height for the current monitor DPI.
+    const int barH = MulDiv(kBarHeight, GetDpiForWindow(hwnd_), 96);
+
     // Slot grid: full width, from top of client area to where the control bar starts.
     int slotAreaTop = 0;
-    int slotAreaBot = totalH - kBarHeight - sbH;
+    int slotAreaBot = totalH - barH - sbH;
     if (slotAreaBot < slotAreaTop) slotAreaBot = slotAreaTop; // guard: very small window
     int slotAreaH = slotAreaBot - slotAreaTop;
     int halfW = totalW / 2;
@@ -190,7 +223,7 @@ void MainWindow::doLayout() {
         slots_[i].resize(slotBounds[i]);
 
     // Control bar: sits directly above the status bar.
-    RECT barBounds = { 0, slotAreaBot, totalW, slotAreaBot + kBarHeight };
+    RECT barBounds = { 0, slotAreaBot, totalW, slotAreaBot + barH };
     controlBar_.resize(barBounds);
 }
 
@@ -382,6 +415,7 @@ void MainWindow::stressTestTick() {
                 name = all[uri]["name"].get<std::string>();
             slots_[0].setPlugin(name.c_str());
             slots_[0].buildParameterPanel(&liveEngine_);
+            applyUiFont();
             stressAdded_ = true;
         } else {
             LOGW("[StressTest] addPlugin failed (result=%d) for %s",
@@ -517,6 +551,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             MessageBoxA(hwnd_, "Preset file is corrupt or unreadable.",
                                         "Opiqo — Import", MB_OK | MB_ICONWARNING);
                         }
+                        applyUiFont();
                     }
                     return 0;
                 }
@@ -666,7 +701,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     if (id >= IDC_SLOT_ADD_BASE && id < IDC_SLOT_ADD_BASE + 4) {
                         int i = id - IDC_SLOT_ADD_BASE;
                         std::string uri;
-                        if (PluginDialog::showModal(hwnd_, &liveEngine_, &uri)) {
+                        if (PluginDialog::showModal(hwnd_, &liveEngine_, &uri, uiFont_)) {
                             liveEngine_.addPlugin(i + 1, uri);
                             std::string name;
                             json all = liveEngine_.getAvailablePlugins();
@@ -678,6 +713,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                                 name = uri;
                             slots_[i].setPlugin(name.c_str());
                             slots_[i].buildParameterPanel(&liveEngine_);
+                            applyUiFont();
                             slotEnabled_[i] = true;
                         }
                         return 0;
@@ -747,8 +783,29 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
         case WM_GETMINMAXINFO: {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
-            mmi->ptMinTrackSize.x = kMinWidth;
-            mmi->ptMinTrackSize.y = kMinHeight;
+            // Scale logical minimum size to physical pixels for the current monitor.
+            UINT dpi = GetDpiForWindow(hwnd_);
+            if (dpi == 0) dpi = 96; // before hwnd_ is valid, assume 96 dpi
+            mmi->ptMinTrackSize.x = MulDiv(kMinWidth,  dpi, 96);
+            mmi->ptMinTrackSize.y = MulDiv(kMinHeight, dpi, 96);
+            return 0;
+        }
+
+        case WM_DPICHANGED: {
+            // Windows supplies the suggested window rect for the new DPI.
+            const RECT* r = reinterpret_cast<const RECT*>(lParam);
+            SetWindowPos(hwnd_, nullptr,
+                         r->left, r->top,
+                         r->right  - r->left,
+                         r->bottom - r->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+            // Rebuild parameter panels so control positions are re-scaled.
+            for (int i = 0; i < 4; ++i)
+                if (slots_[i].hasPlugin())
+                    slots_[i].buildParameterPanel(&liveEngine_);
+            doLayout();
+            rebuildUiFont();
+            applyUiFont();
             return 0;
         }
 

@@ -124,13 +124,16 @@ void PluginSlot::resize(const RECT& bounds) {
     int w = bounds.right - bounds.left;
     int h = bounds.bottom - bounds.top;
     MoveWindow(hwnd_, bounds.left, bounds.top, w, h, TRUE);
-    if (labelStatic_)  MoveWindow(labelStatic_,  4,   4,  w - 8, 20, TRUE);
-    if (addButton_)    MoveWindow(addButton_,    4,   30, 90,    24, TRUE);
-    if (bypassButton_) MoveWindow(bypassButton_, 100, 30, 70,    24, TRUE);
-    if (deleteButton_) MoveWindow(deleteButton_, 176, 30, 70,    24, TRUE);
+
+#define S(px) MulDiv((px), GetDpiForWindow(hwnd_), 96)
+    if (labelStatic_)  MoveWindow(labelStatic_,  S(4),   S(4),  w - S(8), S(20), TRUE);
+    if (addButton_)    MoveWindow(addButton_,    S(4),   S(30), S(90),    S(24), TRUE);
+    if (bypassButton_) MoveWindow(bypassButton_, S(100), S(30), S(70),    S(24), TRUE);
+    if (deleteButton_) MoveWindow(deleteButton_, S(176), S(30), S(70),    S(24), TRUE);
     // Parameter panel occupies the area below the button row.
-    const RECT panelBounds = { 0, 60, w, h };
+    const RECT panelBounds = { 0, S(60), w, h };
     paramPanel_.resize(panelBounds);
+#undef S
 }
 
 HWND PluginSlot::hwnd() const { return hwnd_; }
@@ -151,7 +154,7 @@ bool PluginSlot::buildParameterPanel(LiveEffectEngine* engine) {
     // the next WM_SIZE from the parent.
     RECT rc = {};
     GetClientRect(hwnd_, &rc);
-    const RECT panelBounds = { 0, 60, rc.right, rc.bottom };
+    const RECT panelBounds = { 0, MulDiv(60, GetDpiForWindow(hwnd_), 96), rc.right, rc.bottom };
     paramPanel_.resize(panelBounds);
     return true;
 }

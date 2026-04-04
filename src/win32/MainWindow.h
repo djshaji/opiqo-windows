@@ -38,6 +38,12 @@ private:
     // Recomputes and applies child-window positions for the current client size.
     void doLayout();
 
+    // Creates (or recreates) the UI font at the window's current monitor DPI.
+    void rebuildUiFont();
+
+    // Sends WM_SETFONT to every descendant child window.
+    void applyUiFont();
+
     // Called when the gain slider position changes.
     void onGainChanged();
 
@@ -55,6 +61,7 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND      hwnd_     = nullptr;
     HWND      statusBar_ = nullptr;
+    HFONT     uiFont_    = nullptr;  // 10pt Segoe UI, DPI-scaled
 
     AppSettings                       settings_;
     std::unique_ptr<WasapiDeviceEnum>  deviceEnum_;
