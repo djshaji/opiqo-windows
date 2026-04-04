@@ -82,6 +82,14 @@ bool MainWindow::create(int nCmdShow) {
     // Resolve saved device ids against what is actually present.
     onDeviceListChanged();
 
+    // Auto-detect sample rate and block size on first run (sentinel = 0).
+    if (settings_.sampleRate == 0) {
+        int detected = deviceEnum_->getNativeSampleRate(settings_.outputDeviceId);
+        settings_.sampleRate = (detected > 0) ? detected : 48000;
+    }
+    if (settings_.blockSize == 0)
+        settings_.blockSize = 512;
+
     // Initialise LV2 plugin discovery. The path is resolved relative to the
     // executable; on Windows the bundles live in bin\lv2 next to the .exe.
     {
@@ -124,7 +132,6 @@ bool MainWindow::create(int nCmdShow) {
         SetWindowSubclass(controlBar_.hwnd(), ControlBarSubclassProc,
                           1 /*subclassId*/, reinterpret_cast<DWORD_PTR>(this));
         controlBar_.setFormatIndex(settings_.recordFormat);
-        controlBar_.showQualityCombo(settings_.recordFormat != 0);
         controlBar_.enableRecordButton(false); // enabled when engine reaches Running
         // Sync gain slider and engine to the persisted setting.
         if (liveEngine_.gain)
@@ -327,10 +334,17 @@ void MainWindow::onEngineError() {
 LRESULT CALLBACK MainWindow::ControlBarSubclassProc(
         HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         UINT_PTR /*subclassId*/, DWORD_PTR refData) {
+    MainWindow* self = reinterpret_cast<MainWindow*>(refData);
     if (msg == WM_HSCROLL) {
-        MainWindow* self = reinterpret_cast<MainWindow*>(refData);
         if (self)
             self->onGainChanged();
+        return 0;
+    }
+    if (msg == WM_COMMAND) {
+        // Forward button WM_COMMAND up to the main window so IDC_POWER_TOGGLE,
+        // IDC_RECORD_TOGGLE, etc. are handled by MainWindow::WndProc.
+        if (self)
+            return SendMessage(self->hwnd_, msg, wParam, lParam);
         return 0;
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -691,7 +705,6 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     if (HIWORD(wParam) == CBN_SELCHANGE) {
                         int fmtIdx = controlBar_.formatIndex();
                         settings_.recordFormat = fmtIdx;
-                        controlBar_.showQualityCombo(fmtIdx != 0);
                     }
                     return 0;
                 }

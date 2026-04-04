@@ -27,8 +27,8 @@ AppSettings AppSettings::load() {
         f >> j;
         s.inputDeviceId  = j.value("inputDeviceId",  std::string{});
         s.outputDeviceId = j.value("outputDeviceId", std::string{});
-        s.sampleRate     = j.value("sampleRate",     48000);
-        s.blockSize      = j.value("blockSize",      4096);
+        s.sampleRate     = j.value("sampleRate",     0);
+        s.blockSize      = j.value("blockSize",      0);
         s.exclusiveMode  = j.value("exclusiveMode",  false);
         s.recordFormat   = j.value("recordFormat",   0);
         s.recordQuality  = j.value("recordQuality",  0);

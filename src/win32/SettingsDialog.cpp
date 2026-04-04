@@ -37,7 +37,7 @@ static INT_PTR CALLBACK SettingsDialogProc(HWND dlg, UINT msg,
             // --- Block size combo ---
             static const int kBlockSizes[] = { 256, 512, 1024, 2048, 4096 };
             HWND bsCombo = GetDlgItem(dlg, IDC_SETTINGS_BLOCKSIZE);
-            int  bsSel   = 4; // default: 4096
+            int  bsSel   = 1; // default: 512
             for (int i = 0; i < 5; ++i) {
                 char buf[8];
                 snprintf(buf, sizeof(buf), "%d", kBlockSizes[i]);

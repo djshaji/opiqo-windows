@@ -32,6 +32,11 @@ public:
     static std::string resolveOrDefault(const std::vector<DeviceInfo>& list,
                                         const std::string& savedId);
 
+    // Queries the WASAPI mix format for the given device id and returns its
+    // native sample rate. If deviceId is empty, queries the default render
+    // endpoint. Returns 0 on failure.
+    int getNativeSampleRate(const std::string& deviceId) const;
+
 private:
     struct Impl;
     Impl* impl_ = nullptr;

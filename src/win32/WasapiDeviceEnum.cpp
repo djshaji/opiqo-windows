@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmdeviceapi.h>
+#include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <propsys.h>
 
@@ -201,5 +202,39 @@ std::string WasapiDeviceEnum::resolveOrDefault(const std::vector<DeviceInfo>& li
 
     if (!list.empty()) return list[0].id;
     return {};
+}
+
+int WasapiDeviceEnum::getNativeSampleRate(const std::string& deviceId) const {
+    if (!impl_->enumerator) return 0;
+
+    IMMDevice* dev = nullptr;
+    HRESULT hr;
+    if (deviceId.empty()) {
+        hr = impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev);
+    } else {
+        std::wstring wid = [&] {
+            int len = MultiByteToWideChar(CP_UTF8, 0, deviceId.c_str(), -1, nullptr, 0);
+            std::wstring w(len - 1, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, deviceId.c_str(), -1, &w[0], len);
+            return w;
+        }();
+        hr = impl_->enumerator->GetDevice(wid.c_str(), &dev);
+    }
+    if (FAILED(hr) || !dev) return 0;
+
+    IAudioClient* client = nullptr;
+    hr = dev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                       reinterpret_cast<void**>(&client));
+    dev->Release();
+    if (FAILED(hr) || !client) return 0;
+
+    WAVEFORMATEX* mix = nullptr;
+    int sampleRate = 0;
+    if (SUCCEEDED(client->GetMixFormat(&mix)) && mix) {
+        sampleRate = static_cast<int>(mix->nSamplesPerSec);
+        CoTaskMemFree(mix);
+    }
+    client->Release();
+    return sampleRate;
 }
 

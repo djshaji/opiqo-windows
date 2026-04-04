@@ -65,10 +65,10 @@ bool ControlBar::create(HWND parent, const RECT& bounds) {
         SendMessageA(formatCombo_, CB_SETCURSEL, 0, 0);
     }
 
-    // Quality dropdown (High / Medium / Low) — hidden by default (WAV selected).
+    // Quality dropdown (High / Medium / Low).
     qualityCombo_ = CreateWindowExA(
         0, "COMBOBOX", nullptr,
-        WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
         S(416), S(4), S(90), S(120),
         hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_QUALITY_COMBO)),

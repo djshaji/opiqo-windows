@@ -5,8 +5,8 @@
 struct AppSettings {
     std::string inputDeviceId;
     std::string outputDeviceId;
-    int  sampleRate    = 48000;
-    int  blockSize     = 4096;
+    int  sampleRate    = 0;    // 0 = auto-detect from device on first run
+    int  blockSize     = 0;    // 0 = auto → 512
     bool exclusiveMode = false;
     int   recordFormat  = 0;   // 0 = WAV, 1 = MP3, 2 = OGG
     int   recordQuality = 0;   // 0 = default / CBR 128
