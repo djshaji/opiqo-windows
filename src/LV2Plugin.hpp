@@ -507,7 +507,11 @@ public:
 
         // Free port buffers and controls
         for (auto& p : ports_) {
+#ifdef aligned_free
+            if (p.atom) aligned_free(p.atom);
+#else
             if (p.atom) free(p.atom);
+#endif
             delete p.atom_state;
         }
         ports_.clear();
@@ -1538,7 +1542,7 @@ private:
     LV2HostWorker host_worker_;
 
     std::atomic<bool> shutdown_;
-    std::atomic<bool> closed_;
+    std::atomic<bool> closed_{false};
     std::atomic<bool> worker_stopped{false};
 };
 
