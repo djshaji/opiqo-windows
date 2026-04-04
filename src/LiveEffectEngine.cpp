@@ -564,6 +564,7 @@ std::string LiveEffectEngine::getWritableParams (int plugin) {
 }
 
 bool LiveEffectEngine::startRecording(int fd, int file_type, int quality) {
+    fileWriter->sampleRate = sampleRate;
     return fileWriter->open(fd,
                                     static_cast<FileType>(file_type), quality);
 }
@@ -573,7 +574,9 @@ void LiveEffectEngine::stopRecording() {
 }
 
 int LiveEffectEngine::process (float* input, float* output, int frames) {
-    queueManager.process(input, output, frames);
+    // process() receives stereo-interleaved buffers; pass total sample count
+    // (frames * channels) so the queue copies all samples, not just half.
+    queueManager.process(input, output, frames * mOutputChannelCount);
 
     // Fast-path: UI thread is mid plugin-graph mutation — pass audio through.
     if (bypass.load(std::memory_order_acquire)) {
@@ -590,6 +593,7 @@ int LiveEffectEngine::process (float* input, float* output, int frames) {
     std::lock_guard<std::mutex> lock(pluginMutex, std::adopt_lock);
 
     // Process plugins in order
+    bool anyProcessed = false;
     for (int i = 1; i <= 4; i++) {
         LV2Plugin* plugin = nullptr;
         switch (i) {
@@ -603,6 +607,21 @@ int LiveEffectEngine::process (float* input, float* output, int frames) {
             plugin->process(input, output, frames);
             // For the next plugin in the chain, the output of the current plugin becomes the input
             input = output;
+            anyProcessed = true;
+        }
+    }
+
+    // No active plugins — pass audio through so output is never left stale.
+    if (!anyProcessed)
+        memcpy(output, input, sizeof(float) * frames * mOutputChannelCount);
+
+    // Apply gain to the final output.
+    if (gain) {
+        float g = *gain;
+        if (g != 1.0f) {
+            int n = frames * mOutputChannelCount;
+            for (int i = 0; i < n; ++i)
+                output[i] *= g;
         }
     }
 

@@ -23,14 +23,18 @@ static INT_PTR CALLBACK SettingsDialogProc(HWND dlg, UINT msg,
             SetWindowLongPtr(dlg, DWLP_USER, lParam);
 
             // --- Sample rate combo ---
+            // Index 0 = "Auto": let the audio driver decide the rate.
+            // A saved sampleRate of 0 means Auto.
             static const int kSampleRates[] = { 44100, 48000, 96000 };
             HWND srCombo = GetDlgItem(dlg, IDC_SETTINGS_SAMPLERATE);
-            int  srSel   = 1; // default: 48000
+            SendMessageA(srCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Auto"));
+            int  srSel   = 0; // default: Auto
             for (int i = 0; i < 3; ++i) {
                 char buf[12];
                 snprintf(buf, sizeof(buf), "%d", kSampleRates[i]);
                 SendMessageA(srCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(buf));
-                if (kSampleRates[i] == ctx->settings->sampleRate) srSel = i;
+                if (ctx->settings->sampleRate != 0 &&
+                    kSampleRates[i] == ctx->settings->sampleRate) srSel = i + 1;
             }
             SendMessageA(srCombo, CB_SETCURSEL, srSel, 0);
 
@@ -96,7 +100,10 @@ static INT_PTR CALLBACK SettingsDialogProc(HWND dlg, UINT msg,
                         SendDlgItemMessageA(dlg, IDC_SETTINGS_OUTPUT,     CB_GETCURSEL, 0, 0));
                     bool excl  = (IsDlgButtonChecked(dlg, IDC_SETTINGS_EXCLUSIVE) == BST_CHECKED);
 
-                    if (srIdx  >= 0 && srIdx  < 3) ctx->settings->sampleRate = kSampleRates[srIdx];
+                    if (srIdx == 0)
+                        ctx->settings->sampleRate = 0;  // Auto
+                    else if (srIdx >= 1 && srIdx <= 3)
+                        ctx->settings->sampleRate = kSampleRates[srIdx - 1];
                     if (bsIdx  >= 0 && bsIdx  < 5) ctx->settings->blockSize  = kBlockSizes[bsIdx];
                     if (inIdx  >= 0 && inIdx  < static_cast<int>(ctx->inputIds.size()))
                         ctx->settings->inputDeviceId  = ctx->inputIds[inIdx];

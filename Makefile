@@ -238,6 +238,30 @@ src/main_win32.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/main_win32.cpp.s
 .PHONY : src/main_win32.cpp.s
 
+src/resample.obj: src/resample.c.obj
+.PHONY : src/resample.obj
+
+# target to build an object file
+src/resample.c.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/resample.c.obj
+.PHONY : src/resample.c.obj
+
+src/resample.i: src/resample.c.i
+.PHONY : src/resample.i
+
+# target to preprocess a source file
+src/resample.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/resample.c.i
+.PHONY : src/resample.c.i
+
+src/resample.s: src/resample.c.s
+.PHONY : src/resample.s
+
+# target to generate assembly for a file
+src/resample.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/resample.c.s
+.PHONY : src/resample.c.s
+
 src/win32/AppSettings.obj: src/win32/AppSettings.cpp.obj
 .PHONY : src/win32/AppSettings.obj
 
@@ -508,6 +532,9 @@ help:
 	@echo "... src/main_win32.obj"
 	@echo "... src/main_win32.i"
 	@echo "... src/main_win32.s"
+	@echo "... src/resample.obj"
+	@echo "... src/resample.i"
+	@echo "... src/resample.s"
 	@echo "... src/win32/AppSettings.obj"
 	@echo "... src/win32/AppSettings.i"
 	@echo "... src/win32/AppSettings.s"

@@ -82,11 +82,6 @@ bool MainWindow::create(int nCmdShow) {
     // Resolve saved device ids against what is actually present.
     onDeviceListChanged();
 
-    // Auto-detect sample rate and block size on first run (sentinel = 0).
-    if (settings_.sampleRate == 0) {
-        int detected = deviceEnum_->getNativeSampleRate(settings_.outputDeviceId);
-        settings_.sampleRate = (detected > 0) ? detected : 48000;
-    }
     if (settings_.blockSize == 0)
         settings_.blockSize = 512;
 
@@ -245,6 +240,8 @@ void MainWindow::onEngineStatePoll() {
         // Successfully started — leave toggle ON.
         controlBar_.setPowerState(true);
         controlBar_.enableRecordButton(true);
+        // Sync the DSP engine's sample rate to the driver-negotiated rate.
+        liveEngine_.sampleRate = audioEngine_.sampleRate();
         // Start a long-period watchdog to detect mid-session device loss.
         SetTimer(hwnd_, IDT_ENGINE_WATCHDOG, 500, nullptr);
     } else {
@@ -632,6 +629,13 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                             SetTimer(hwnd_, IDT_ENGINE_STATE, 50, nullptr);
                         }
                     } else {
+                        // Stop any active recording before killing the engine.
+                        if (recordingFd_ >= 0) {
+                            liveEngine_.stopRecording();
+                            _close(recordingFd_);
+                            recordingFd_ = -1;
+                            controlBar_.setRecordState(false);
+                        }
                         audioEngine_.stop();
                         // stop() is synchronous — state is Off when it returns.
                         KillTimer(hwnd_, IDT_ENGINE_WATCHDOG);

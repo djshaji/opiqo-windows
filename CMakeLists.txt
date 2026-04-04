@@ -35,6 +35,12 @@ set(ENGINE_SOURCES
     src/LiveEffectEngine.cpp
     src/FileWriter.cpp
     src/LockFreeQueue.cpp
+    src/resample.c
+)
+
+# speex resampler compiled standalone outside of the speexdsp library.
+set_source_files_properties(src/resample.c PROPERTIES
+    COMPILE_DEFINITIONS "OUTSIDE_SPEEX;RANDOM_PREFIX=opiqo"
 )
 
 set(WIN32_UI_SOURCES

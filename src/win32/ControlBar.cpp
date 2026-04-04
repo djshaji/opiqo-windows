@@ -95,7 +95,7 @@ void ControlBar::setRecordState(bool on) {
     if (recordButton_) {
         SendMessage(recordButton_, BM_SETCHECK,
                     on ? BST_CHECKED : BST_UNCHECKED, 0);
-        SetWindowTextA(recordButton_, on ? "\u25a0 Stop" : "\u25cf Record");
+        SetWindowTextW(recordButton_, on ? L"\u25a0 Stop" : L"\u25cf Record");
     }
 }
 

@@ -7,6 +7,11 @@
 #include "AudioEngine.h"
 #include "../LiveEffectEngine.h"
 
+// Speex resampler (resample.c compiled with OUTSIDE_SPEEX + RANDOM_PREFIX=opiqo).
+#define OUTSIDE_SPEEX
+#define RANDOM_PREFIX opiqo
+#include "../speex_resampler.h"
+
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -47,6 +52,13 @@ struct AudioEngine::Impl {
 
     // DSP engine (non-owning pointer; nullptr = pass-through).
     LiveEffectEngine* engine = nullptr;
+
+    // Optional capture→render sample-rate converter (nullptr when rates match).
+    SpeexResamplerState* captureResampler = nullptr;
+    // Resampled stereo input buffer (at renderFmt rate, 2-ch interleaved).
+    std::vector<float> resampledBuf;
+    // Stereo DSP output buffer (at renderFmt rate, 2-ch interleaved).
+    std::vector<float> dspOutBuf;
 
     // Pending device IDs written by start() before the audio thread launches.
     std::string inDeviceId;
@@ -318,22 +330,9 @@ void AudioEngine::audioThreadProc() {
         return;
     }
 
-    // Validate that the device sample rate matches the requested rate.
-    // In shared mode the mix format is fixed by the OS and cannot be overridden.
-    if (static_cast<int32_t>(impl_->captureFmt->nSamplesPerSec) != impl_->sampleRate ||
-        static_cast<int32_t>(impl_->renderFmt->nSamplesPerSec)  != impl_->sampleRate) {
-        setErr(
-            "Device sample rate (" +
-            std::to_string(impl_->captureFmt->nSamplesPerSec) + " capture / " +
-            std::to_string(impl_->renderFmt->nSamplesPerSec)  + " render) "
-            "does not match requested rate (" +
-            std::to_string(impl_->sampleRate) + ")");
-        impl_->state = AudioEngine::State::Error;
-        releaseResources();
-        return;
-    }
-    // Update sampleRate to the negotiated value (they are equal here, but
-    // keeps the stored value authoritative for downstream consumers).
+    // Accept whatever rates the devices negotiated in shared mode — the OS
+    // owns the mix format and may give different rates per endpoint.
+    // Update sampleRate to the render device rate (authoritative for DSP).
     impl_->sampleRate = static_cast<int32_t>(impl_->renderFmt->nSamplesPerSec);
 
     // -----------------------------------------------------------------------
@@ -462,10 +461,35 @@ void AudioEngine::audioThreadProc() {
 
     impl_->inBuf.assign(captureBufSize * capChannels, 0.f);
     impl_->outBuf.assign(maxBufSize    * renChannels, 0.f);
-    // Stereo buffer for LiveEffectEngine (always 2 channels).
-    // Needs space for both the input half and the output half.
-    impl_->stereoBuf.assign(captureBufSize * 4, 0.f);
+    // Stereo (2-ch) downmix buffer at capture rate — input side before DSP.
+    impl_->stereoBuf.assign(captureBufSize * 2, 0.f);
+    // DSP output buffer at render rate (2-ch interleaved).
+    impl_->dspOutBuf.assign(std::max(captureBufSize, renderBufSize) * 2, 0.f);
     (void)maxChannels;
+
+    // Create a resampler if the capture and render devices run at different rates.
+    if (impl_->captureFmt->nSamplesPerSec != impl_->renderFmt->nSamplesPerSec) {
+        int rsErr = 0;
+        impl_->captureResampler = speex_resampler_init(
+            2,
+            impl_->captureFmt->nSamplesPerSec,
+            impl_->renderFmt->nSamplesPerSec,
+            SPEEX_RESAMPLER_QUALITY_DESKTOP,
+            &rsErr);
+        if (!impl_->captureResampler || rsErr != RESAMPLER_ERR_SUCCESS) {
+            setErr("speex_resampler_init failed (err " + std::to_string(rsErr) + ")");
+            impl_->state = AudioEngine::State::Error;
+            releaseResources();
+            return;
+        }
+        speex_resampler_skip_zeros(impl_->captureResampler);
+        // Max output frames per capture packet, with a small margin for
+        // resampler start-up latency.
+        UINT32 maxOut = captureBufSize
+            * impl_->renderFmt->nSamplesPerSec
+            / impl_->captureFmt->nSamplesPerSec + 128;
+        impl_->resampledBuf.assign(maxOut * 2, 0.f);
+    }
 
     // -----------------------------------------------------------------------
     // Start streams
@@ -550,49 +574,65 @@ bool AudioEngine::runLoop() {
 
             impl_->captureService->ReleaseBuffer(numFrames);
 
+            // Always downmix capture to stereo (2-ch interleaved, capture rate).
+            for (UINT32 f = 0; f < numFrames; ++f) {
+                impl_->stereoBuf[f * 2 + 0] =
+                    (capChannels >= 1) ? impl_->inBuf[f * capChannels + 0] : 0.f;
+                impl_->stereoBuf[f * 2 + 1] =
+                    (capChannels >= 2) ? impl_->inBuf[f * capChannels + 1]
+                                      : impl_->stereoBuf[f * 2];
+            }
+
+            // Optionally resample capture data to the render device's rate.
+            const float* dspIn = impl_->stereoBuf.data();
+            UINT32 dspFrames = numFrames;
+            if (impl_->captureResampler) {
+                spx_uint32_t inLen  = static_cast<spx_uint32_t>(numFrames);
+                spx_uint32_t outLen = static_cast<spx_uint32_t>(
+                    impl_->resampledBuf.size() / 2);
+                speex_resampler_process_interleaved_float(
+                    impl_->captureResampler,
+                    impl_->stereoBuf.data(), &inLen,
+                    impl_->resampledBuf.data(), &outLen);
+                dspIn     = impl_->resampledBuf.data();
+                dspFrames = static_cast<UINT32>(outLen);
+            }
+
+            // DSP or pass-through — stereo in, stereo out at render rate.
             if (impl_->engine) {
-                // Downmix capture to stereo for LiveEffectEngine.
-                for (UINT32 f = 0; f < numFrames; ++f) {
-                    impl_->stereoBuf[f * 2 + 0] =
-                        (capChannels >= 1) ? impl_->inBuf[f * capChannels + 0] : 0.f;
-                    impl_->stereoBuf[f * 2 + 1] =
-                        (capChannels >= 2) ? impl_->inBuf[f * capChannels + 1] : impl_->stereoBuf[f * 2];
-                }
-
-                // DSP processing — stereo in, stereo out.
-                impl_->engine->process(
-                    impl_->stereoBuf.data(),
-                    impl_->stereoBuf.data() + numFrames * 2,  // non-overlapping output half
-                    static_cast<int>(numFrames));
-
-                // Upmix stereo output back to render channel count.
-                const float* stereoOut = impl_->stereoBuf.data() + numFrames * 2;
-                for (UINT32 f = 0; f < numFrames; ++f) {
-                    for (UINT32 c = 0; c < renChannels; ++c) {
-                        impl_->outBuf[f * renChannels + c] =
-                            (c < 2) ? stereoOut[f * 2 + c] : 0.f;
-                    }
-                }
+                impl_->engine->process(const_cast<float*>(dspIn), impl_->dspOutBuf.data(),
+                                       static_cast<int>(dspFrames));
             } else {
-                // No engine wired — plain pass-through.
-                UINT32 copyChannels = std::min(capChannels, renChannels);
-                for (UINT32 f = 0; f < numFrames; ++f) {
-                    for (UINT32 c = 0; c < renChannels; ++c) {
-                        impl_->outBuf[f * renChannels + c] =
-                            (c < copyChannels)
-                                ? impl_->inBuf[f * capChannels + c]
-                                : 0.f;
-                    }
+                std::memcpy(impl_->dspOutBuf.data(), dspIn,
+                            dspFrames * 2 * sizeof(float));
+            }
+
+            // Upmix stereo output to render channel count.
+            for (UINT32 f = 0; f < dspFrames; ++f) {
+                for (UINT32 c = 0; c < renChannels; ++c) {
+                    impl_->outBuf[f * renChannels + c] =
+                        (c < 2) ? impl_->dspOutBuf[f * 2 + c] : 0.f;
                 }
             }
 
             // Write to render buffer.
+            // If the render buffer is fuller than expected (e.g. Wine/WASAPI
+            // emulation timing jitter), write only what fits this period and
+            // carry any excess frames into the next callback via silence padding
+            // rather than discarding them — this avoids render-side underruns.
             UINT32 padding = 0;
             impl_->renderClient->GetCurrentPadding(&padding);
             UINT32 renderBufSize = 0;
             impl_->renderClient->GetBufferSize(&renderBufSize);
             UINT32 available = renderBufSize - padding;
-            UINT32 toWrite   = std::min(numFrames, available);
+
+            if (available == 0) {
+                // Render buffer is full — count as a dropout and skip.
+                impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+
+            UINT32 toWrite = std::min(dspFrames, available);
 
             BYTE* renderData = nullptr;
             hr = impl_->renderService->GetBuffer(toWrite, &renderData);
@@ -604,11 +644,31 @@ bool AudioEngine::runLoop() {
             fromFloat(impl_->outBuf.data(), toWrite, renChannels,
                       impl_->renderFmt, renderData);
             impl_->renderService->ReleaseBuffer(toWrite, 0);
+
+            // If the render device accepted fewer frames than we processed,
+            // pad the render buffer with silence for the remainder so the
+            // next period starts with a full buffer.
+            if (toWrite < dspFrames) {
+                UINT32 gap = dspFrames - toWrite;
+                UINT32 gapAvail = renderBufSize - (padding + toWrite);
+                UINT32 silFrames = std::min(gap, gapAvail);
+                if (silFrames > 0) {
+                    BYTE* silData = nullptr;
+                    if (SUCCEEDED(impl_->renderService->GetBuffer(silFrames, &silData)))
+                        impl_->renderService->ReleaseBuffer(silFrames,
+                                                            AUDCLNT_BUFFERFLAGS_SILENT);
+                }
+                impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     }
 }
 
 void AudioEngine::releaseResources() {
+    if (impl_->captureResampler) {
+        speex_resampler_destroy(impl_->captureResampler);
+        impl_->captureResampler = nullptr;
+    }
     if (impl_->captureService) { impl_->captureService->Release(); impl_->captureService = nullptr; }
     if (impl_->renderService)  { impl_->renderService->Release();  impl_->renderService  = nullptr; }
     if (impl_->captureClient)  { impl_->captureClient->Release();  impl_->captureClient  = nullptr; }
