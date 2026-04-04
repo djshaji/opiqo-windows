@@ -36,6 +36,7 @@ struct AudioEngine::Impl {
 
     // Synchronisation.
     HANDLE captureEvent = nullptr;
+    HANDLE renderEvent  = nullptr;
     HANDLE stopEvent    = nullptr;
 
     // Pre-allocated scratch buffers (sized at start(), reused in loop).
@@ -47,9 +48,14 @@ struct AudioEngine::Impl {
     // DSP engine (non-owning pointer; nullptr = pass-through).
     LiveEffectEngine* engine = nullptr;
 
+    // Pending device IDs written by start() before the audio thread launches.
+    std::string inDeviceId;
+    std::string outDeviceId;
+
     // Thread and state.
     std::thread              thread;
     std::atomic<AudioEngine::State> state { AudioEngine::State::Off };
+    mutable std::mutex       errorMsgMutex;   // Guards errorMsg across threads.
     std::string              errorMsg;
     std::atomic<uint64_t>    dropouts { 0 };
 };
@@ -90,10 +96,30 @@ static void toFloat(const BYTE* src, UINT32 frames, UINT32 channels,
                     const WAVEFORMATEX* fmt, float* dst) {
     if (isFloatFormat(fmt)) {
         std::memcpy(dst, src, frames * channels * sizeof(float));
+        return;
+    }
+    UINT32 n = frames * channels;
+    WORD bitsPerSample = fmt->wBitsPerSample;
+    // For WAVE_FORMAT_EXTENSIBLE, wBitsPerSample reflects the container width.
+    if (bitsPerSample == 32) {
+        // 32-bit integer PCM.
+        const int32_t* s = reinterpret_cast<const int32_t*>(src);
+        for (UINT32 i = 0; i < n; ++i)
+            dst[i] = static_cast<float>(s[i]) / 2147483648.f;
+    } else if (bitsPerSample == 24) {
+        // 24-bit packed PCM (3 bytes per sample, little-endian, sign-extended).
+        for (UINT32 i = 0; i < n; ++i) {
+            const BYTE* p = src + i * 3;
+            int32_t v = (static_cast<int32_t>(p[0]))        |
+                        (static_cast<int32_t>(p[1]) << 8)   |
+                        (static_cast<int32_t>(p[2]) << 16);
+            // Sign-extend from 24 bits.
+            if (v & 0x800000) v |= static_cast<int32_t>(0xFF000000);
+            dst[i] = static_cast<float>(v) / 8388608.f;
+        }
     } else {
-        // Fallback: 16-bit PCM -> float
+        // Fallback: 16-bit PCM.
         const int16_t* s = reinterpret_cast<const int16_t*>(src);
-        UINT32 n = frames * channels;
         for (UINT32 i = 0; i < n; ++i)
             dst[i] = static_cast<float>(s[i]) / 32768.f;
     }
@@ -104,9 +130,34 @@ static void fromFloat(const float* src, UINT32 frames, UINT32 channels,
                       const WAVEFORMATEX* fmt, BYTE* dst) {
     if (isFloatFormat(fmt)) {
         std::memcpy(dst, src, frames * channels * sizeof(float));
+        return;
+    }
+    UINT32 n = frames * channels;
+    WORD bitsPerSample = fmt->wBitsPerSample;
+    if (bitsPerSample == 32) {
+        // 32-bit integer PCM.
+        int32_t* d = reinterpret_cast<int32_t*>(dst);
+        for (UINT32 i = 0; i < n; ++i) {
+            float v = src[i];
+            if (v >  1.f) v =  1.f;
+            if (v < -1.f) v = -1.f;
+            d[i] = static_cast<int32_t>(v * 2147483647.f);
+        }
+    } else if (bitsPerSample == 24) {
+        // 24-bit packed PCM (3 bytes per sample, little-endian).
+        for (UINT32 i = 0; i < n; ++i) {
+            float v = src[i];
+            if (v >  1.f) v =  1.f;
+            if (v < -1.f) v = -1.f;
+            int32_t s = static_cast<int32_t>(v * 8388607.f);
+            BYTE* p = dst + i * 3;
+            p[0] = static_cast<BYTE>( s        & 0xFF);
+            p[1] = static_cast<BYTE>((s >>  8) & 0xFF);
+            p[2] = static_cast<BYTE>((s >> 16) & 0xFF);
+        }
     } else {
+        // Fallback: 16-bit PCM.
         int16_t* d = reinterpret_cast<int16_t*>(dst);
-        UINT32 n = frames * channels;
         for (UINT32 i = 0; i < n; ++i) {
             float v = src[i];
             if (v >  1.f) v =  1.f;
@@ -138,7 +189,10 @@ AudioEngine::State AudioEngine::state() const {
 int32_t AudioEngine::sampleRate() const { return impl_->sampleRate; }
 int32_t AudioEngine::blockSize()  const { return impl_->blockSize;  }
 
-std::string AudioEngine::errorMessage() const { return impl_->errorMsg; }
+std::string AudioEngine::errorMessage() const {
+    std::lock_guard<std::mutex> lk(impl_->errorMsgMutex);
+    return impl_->errorMsg;
+}
 
 uint64_t AudioEngine::dropoutCount() const {
     return impl_->dropouts.load(std::memory_order_relaxed);
@@ -156,8 +210,8 @@ bool AudioEngine::start(int32_t sampleRate,
     impl_->sampleRate    = sampleRate;
     impl_->blockSize     = blockSize;
     impl_->exclusiveMode = exclusiveMode;
-    // Carry device IDs into the audio thread via errorMsg before state moves.
-    impl_->errorMsg = inputDeviceId + "|" + outputDeviceId;
+    impl_->inDeviceId    = inputDeviceId;
+    impl_->outDeviceId   = outputDeviceId;
 
     impl_->stopEvent = CreateEventW(nullptr, TRUE /*manual*/, FALSE, nullptr);
     if (!impl_->stopEvent) {
@@ -189,21 +243,20 @@ void AudioEngine::stop() {
 // ---------------------------------------------------------------------------
 
 void AudioEngine::audioThreadProc() {
-    // Extract device IDs from the temporary carrier in errorMsg.
-    std::string carrier = impl_->errorMsg;
-    impl_->errorMsg.clear();
+    // Read device IDs from dedicated fields (written by start() before thread launch).
+    std::string inId  = impl_->inDeviceId;
+    std::string outId = impl_->outDeviceId;
 
-    std::string inId, outId;
-    auto sep = carrier.find('|');
-    if (sep != std::string::npos) {
-        inId  = carrier.substr(0, sep);
-        outId = carrier.substr(sep + 1);
-    }
+    // Helper: set errorMsg under its mutex. All writes from this thread go through here.
+    auto setErr = [this](std::string msg) {
+        std::lock_guard<std::mutex> lk(impl_->errorMsgMutex);
+        impl_->errorMsg = std::move(msg);
+    };
 
     // COM init for the audio thread — multithreaded apartment.
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr)) {
-        impl_->errorMsg = "Audio thread CoInitializeEx failed";
+        setErr("Audio thread CoInitializeEx failed");
         impl_->state = AudioEngine::State::Error;
         return;
     }
@@ -215,7 +268,7 @@ void AudioEngine::audioThreadProc() {
                           IID_IMMDeviceEnumerator,
                           reinterpret_cast<void**>(&impl_->enumerator));
     if (FAILED(hr)) {
-        impl_->errorMsg = "CoCreateInstance(IMMDeviceEnumerator) failed";
+        setErr("CoCreateInstance(IMMDeviceEnumerator) failed");
         impl_->state = AudioEngine::State::Error;
         CoUninitialize();
         return;
@@ -240,7 +293,7 @@ void AudioEngine::audioThreadProc() {
 
     if (!activateClient(inId,  eCapture, &impl_->captureClient)
      || !activateClient(outId, eRender,  &impl_->renderClient)) {
-        impl_->errorMsg = "Failed to activate audio endpoints";
+        setErr("Failed to activate audio endpoints");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
@@ -259,28 +312,68 @@ void AudioEngine::audioThreadProc() {
 
     if (!negotiateFormat(impl_->captureClient, &impl_->captureFmt)
      || !negotiateFormat(impl_->renderClient,  &impl_->renderFmt)) {
-        impl_->errorMsg = "GetMixFormat failed";
+        setErr("GetMixFormat failed");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
     }
 
+    // Validate that the device sample rate matches the requested rate.
+    // In shared mode the mix format is fixed by the OS and cannot be overridden.
+    if (static_cast<int32_t>(impl_->captureFmt->nSamplesPerSec) != impl_->sampleRate ||
+        static_cast<int32_t>(impl_->renderFmt->nSamplesPerSec)  != impl_->sampleRate) {
+        setErr(
+            "Device sample rate (" +
+            std::to_string(impl_->captureFmt->nSamplesPerSec) + " capture / " +
+            std::to_string(impl_->renderFmt->nSamplesPerSec)  + " render) "
+            "does not match requested rate (" +
+            std::to_string(impl_->sampleRate) + ")");
+        impl_->state = AudioEngine::State::Error;
+        releaseResources();
+        return;
+    }
+    // Update sampleRate to the negotiated value (they are equal here, but
+    // keeps the stored value authoritative for downstream consumers).
+    impl_->sampleRate = static_cast<int32_t>(impl_->renderFmt->nSamplesPerSec);
+
     // -----------------------------------------------------------------------
-    // Initialise both clients in event-driven shared mode
+    // Initialise both clients in event-driven shared/exclusive mode
     // -----------------------------------------------------------------------
-    // Use the device's own preferred period (0 = let driver decide).
     AUDCLNT_SHAREMODE shareMode = impl_->exclusiveMode
         ? AUDCLNT_SHAREMODE_EXCLUSIVE
         : AUDCLNT_SHAREMODE_SHARED;
 
-    REFERENCE_TIME period = 0;  // 0 → default device period in shared mode.
+    // Exclusive mode requires a non-zero buffer duration equal to the device's
+    // minimum period. Shared mode accepts 0 (let the driver decide).
+    REFERENCE_TIME capturePeriod = 0;
+    REFERENCE_TIME renderPeriod  = 0;
+    if (impl_->exclusiveMode) {
+        REFERENCE_TIME defaultPeriod = 0, minPeriod = 0;
+        if (FAILED(impl_->captureClient->GetDevicePeriod(&defaultPeriod, &minPeriod))) {
+            setErr("GetDevicePeriod failed for capture");
+            impl_->state = AudioEngine::State::Error;
+            releaseResources();
+            return;
+        }
+        capturePeriod = minPeriod;
+
+        defaultPeriod = 0; minPeriod = 0;
+        if (FAILED(impl_->renderClient->GetDevicePeriod(&defaultPeriod, &minPeriod))) {
+            setErr("GetDevicePeriod failed for render");
+            impl_->state = AudioEngine::State::Error;
+            releaseResources();
+            return;
+        }
+        renderPeriod = minPeriod;
+    }
 
     hr = impl_->captureClient->Initialize(
         shareMode,
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-        period, 0, impl_->captureFmt, nullptr);
+        capturePeriod, impl_->exclusiveMode ? capturePeriod : 0,
+        impl_->captureFmt, nullptr);
     if (FAILED(hr)) {
-        impl_->errorMsg = "IAudioClient::Initialize failed for capture";
+        setErr("IAudioClient::Initialize failed for capture");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
@@ -289,25 +382,34 @@ void AudioEngine::audioThreadProc() {
     hr = impl_->renderClient->Initialize(
         shareMode,
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-        period, 0, impl_->renderFmt, nullptr);
+        renderPeriod, impl_->exclusiveMode ? renderPeriod : 0,
+        impl_->renderFmt, nullptr);
     if (FAILED(hr)) {
-        impl_->errorMsg = "IAudioClient::Initialize failed for render";
+        setErr("IAudioClient::Initialize failed for render");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
     }
 
-    // Capture event (auto-reset — signalled by WASAPI each period).
+    // Separate auto-reset events for capture and render.
     impl_->captureEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!impl_->captureEvent) {
-        impl_->errorMsg = "CreateEvent failed for capture";
+        setErr("CreateEvent failed for capture");
+        impl_->state = AudioEngine::State::Error;
+        releaseResources();
+        return;
+    }
+
+    impl_->renderEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!impl_->renderEvent) {
+        setErr("CreateEvent failed for render");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
     }
 
     impl_->captureClient->SetEventHandle(impl_->captureEvent);
-    impl_->renderClient->SetEventHandle(impl_->captureEvent);  // Shared event.
+    impl_->renderClient->SetEventHandle(impl_->renderEvent);
 
     // -----------------------------------------------------------------------
     // Get capture and render services
@@ -316,7 +418,7 @@ void AudioEngine::audioThreadProc() {
         __uuidof(IAudioCaptureClient),
         reinterpret_cast<void**>(&impl_->captureService));
     if (FAILED(hr)) {
-        impl_->errorMsg = "GetService(IAudioCaptureClient) failed";
+        setErr("GetService(IAudioCaptureClient) failed");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
@@ -326,7 +428,7 @@ void AudioEngine::audioThreadProc() {
         __uuidof(IAudioRenderClient),
         reinterpret_cast<void**>(&impl_->renderService));
     if (FAILED(hr)) {
-        impl_->errorMsg = "GetService(IAudioRenderClient) failed";
+        setErr("GetService(IAudioRenderClient) failed");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
         return;
@@ -345,14 +447,25 @@ void AudioEngine::audioThreadProc() {
     }
 
     // -----------------------------------------------------------------------
-    // Allocate scratch buffers (max frames = render buffer size, stereo)
+    // Allocate scratch buffers
     // -----------------------------------------------------------------------
-    UINT32 maxChannels = std::max(impl_->captureFmt->nChannels,
-                                  impl_->renderFmt->nChannels);
-    impl_->inBuf.assign(renderBufSize * maxChannels, 0.f);
-    impl_->outBuf.assign(renderBufSize * maxChannels, 0.f);
+    // Use each device's own buffer size so that capture packets (which are
+    // sized by the capture device period, not the render device period) can
+    // never overflow inBuf on systems with mismatched capture/render periods.
+    UINT32 captureBufSize = 0;
+    impl_->captureClient->GetBufferSize(&captureBufSize);
+
+    UINT32 capChannels = impl_->captureFmt->nChannels;
+    UINT32 renChannels = impl_->renderFmt->nChannels;
+    UINT32 maxBufSize  = std::max(captureBufSize, renderBufSize);
+    UINT32 maxChannels = std::max(capChannels, renChannels);
+
+    impl_->inBuf.assign(captureBufSize * capChannels, 0.f);
+    impl_->outBuf.assign(maxBufSize    * renChannels, 0.f);
     // Stereo buffer for LiveEffectEngine (always 2 channels).
-    impl_->stereoBuf.assign(renderBufSize * 2, 0.f);
+    // Needs space for both the input half and the output half.
+    impl_->stereoBuf.assign(captureBufSize * 4, 0.f);
+    (void)maxChannels;
 
     // -----------------------------------------------------------------------
     // Start streams
@@ -504,6 +617,7 @@ void AudioEngine::releaseResources() {
     if (impl_->captureFmt)     { CoTaskMemFree(impl_->captureFmt); impl_->captureFmt     = nullptr; }
     if (impl_->renderFmt)      { CoTaskMemFree(impl_->renderFmt);  impl_->renderFmt      = nullptr; }
     if (impl_->captureEvent)   { CloseHandle(impl_->captureEvent); impl_->captureEvent   = nullptr; }
+    if (impl_->renderEvent)    { CloseHandle(impl_->renderEvent);  impl_->renderEvent    = nullptr; }
     if (impl_->stopEvent)      { CloseHandle(impl_->stopEvent);    impl_->stopEvent      = nullptr; }
 }
 
