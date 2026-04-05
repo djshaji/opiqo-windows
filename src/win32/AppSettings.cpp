@@ -33,6 +33,8 @@ AppSettings AppSettings::load() {
         s.recordFormat   = j.value("recordFormat",   0);
         s.recordQuality  = j.value("recordQuality",  0);
         s.gain           = j.value("gain",            0.8f);
+        s.licenseKey     = j.value("licenseKey",      std::string{});
+        s.activated      = j.value("activated",       false);
     } catch (...) {
         // Corrupt or unreadable — return defaults.
     }
@@ -56,6 +58,8 @@ void AppSettings::save() const {
     j["recordFormat"]   = recordFormat;
     j["recordQuality"]  = recordQuality;
     j["gain"]           = gain;
+    j["licenseKey"]     = licenseKey;
+    j["activated"]      = activated;
 
     std::ofstream f(path);
     if (f.is_open()) f << j.dump(4);

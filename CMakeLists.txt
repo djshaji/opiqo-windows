@@ -51,6 +51,7 @@ set(WIN32_UI_SOURCES
     src/win32/PluginDialog.cpp
     src/win32/ControlBar.cpp
     src/win32/SettingsDialog.cpp
+    src/win32/UpgradeDialog.cpp
     src/win32/AudioEngine.cpp
     src/win32/WasapiDeviceEnum.cpp
     src/win32/win_logging.cpp
@@ -119,4 +120,5 @@ target_link_libraries(opiqo PRIVATE
     comctl32
     comdlg32
     dbghelp
+    bcrypt
 )

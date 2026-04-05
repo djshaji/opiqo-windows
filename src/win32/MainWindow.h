@@ -10,6 +10,7 @@
 #include "ControlBar.h"
 #include "PluginDialog.h"
 #include "PluginSlot.h"
+#include "UpgradeDialog.h"
 #include "WasapiDeviceEnum.h"
 #include "../LiveEffectEngine.h"
 
@@ -47,6 +48,9 @@ private:
     // Called when the gain slider position changes.
     void onGainChanged();
 
+    // Shows the Upgrade dialog; returns true if user activated Pro.
+    bool showUpgradeDialog();
+
     // --- Stress-test helpers ---
     void startStressTest();
     void stopStressTest();
@@ -64,6 +68,7 @@ private:
     HFONT     uiFont_    = nullptr;  // 10pt Segoe UI, DPI-scaled
 
     AppSettings                       settings_;
+    bool                               isPro_      = false;
     std::unique_ptr<WasapiDeviceEnum>  deviceEnum_;
     LiveEffectEngine                   liveEngine_;
     AudioEngine                        audioEngine_;

@@ -12,6 +12,10 @@ struct AppSettings {
     int   recordQuality = 0;   // 0 = default / CBR 128
     float gain          = 0.8f; // master output gain [0.0, 1.0]
 
+    // Pro license.
+    std::string licenseKey;
+    bool        activated = false;
+
     // Loads from %APPDATA%\Opiqo\settings.json; returns defaults on any error.
     static AppSettings load();
 

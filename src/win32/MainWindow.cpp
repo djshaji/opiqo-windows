@@ -37,16 +37,22 @@ bool MainWindow::create(int nCmdShow) {
         return false;
 
     settings_ = AppSettings::load();
+    isPro_ = settings_.activated;
 
     const char* className = "OpiqoMainWindow";
 
-    WNDCLASSA wc = {};
+    WNDCLASSEXA wc = {};
+    wc.cbSize        = sizeof(WNDCLASSEXA);
     wc.lpfnWndProc   = MainWindow::WndProc;
     wc.hInstance     = instance_;
     wc.lpszClassName = className;
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
+    wc.hIcon         = LoadIconA(instance_, MAKEINTRESOURCEA(IDI_APPICON));
+    wc.hIconSm       = reinterpret_cast<HICON>(
+                           LoadImageA(instance_, MAKEINTRESOURCEA(IDI_APPICON),
+                                      IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 
-    if (RegisterClassA(&wc) == 0) {
+    if (RegisterClassExA(&wc) == 0) {
         CoUninitialize();
         return false;
     }
@@ -57,7 +63,7 @@ bool MainWindow::create(int nCmdShow) {
     hwnd_ = CreateWindowExA(
         0,
         className,
-        "Opiqo Windows Host",
+        isPro_ ? "Opiqo \u2014 Pro Version" : "Opiqo \u2014 Demo Version",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -128,6 +134,8 @@ bool MainWindow::create(int nCmdShow) {
                           1 /*subclassId*/, reinterpret_cast<DWORD_PTR>(this));
         controlBar_.setFormatIndex(settings_.recordFormat);
         controlBar_.enableRecordButton(false); // enabled when engine reaches Running
+        // In demo mode the format combo is locked to WAV.
+        if (!isPro_) controlBar_.enableFormatCombo(false);
         // Sync gain slider and engine to the persisted setting.
         if (liveEngine_.gain)
             *liveEngine_.gain = settings_.gain;
@@ -347,6 +355,12 @@ LRESULT CALLBACK MainWindow::ControlBarSubclassProc(
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+bool MainWindow::showUpgradeDialog() {
+    bool activated = UpgradeDialog::show(hwnd_, &settings_);
+    if (activated) isPro_ = true;
+    return activated;
+}
+
 void MainWindow::onGainChanged() {
     if (!liveEngine_.gain) return;
     int pos = controlBar_.gainValue();           // [0, 100]
@@ -477,11 +491,30 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                 case IDM_FILE_EXIT:
                     PostMessage(hwnd_, WM_CLOSE, 0, 0);
                     return 0;
+                case IDM_HELP_UPGRADE:
+                    if (showUpgradeDialog()) {
+                        controlBar_.enableFormatCombo(true);
+                        SetWindowTextA(hwnd_, "Opiqo \u2014 Pro Version");
+                    }
+                    return 0;
                 case IDM_HELP_ABOUT:
-                    MessageBoxA(hwnd_,
-                        "Opiqo Windows Host\nVersion 1.0"
-                        "\n\nLV2 audio plugin host with WASAPI duplex audio.",
-                        "About Opiqo", MB_OK | MB_ICONINFORMATION);
+                    DialogBoxParamA(instance_,
+                                    MAKEINTRESOURCEA(IDD_ABOUT),
+                                    hwnd_,
+                                    [](HWND dlg, UINT msg, WPARAM wp, LPARAM lp) -> INT_PTR {
+                                        if (msg == WM_INITDIALOG) {
+                                            SetDlgItemTextA(dlg, IDC_ABOUT_EDITION,
+                                                lp ? "Pro Version" : "Demo Version");
+                                            return TRUE;
+                                        }
+                                        if (msg == WM_COMMAND &&
+                                            (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL)) {
+                                            EndDialog(dlg, IDOK);
+                                            return TRUE;
+                                        }
+                                        return FALSE;
+                                    },
+                                    static_cast<LPARAM>(isPro_ ? 1 : 0));
                     return 0;
                 case IDM_FILE_EXPORT_PRESET: {
                     char filePath[MAX_PATH] = {};
@@ -717,6 +750,15 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     int id = static_cast<int>(LOWORD(wParam));
                     if (id >= IDC_SLOT_ADD_BASE && id < IDC_SLOT_ADD_BASE + 4) {
                         int i = id - IDC_SLOT_ADD_BASE;
+                        // Slots 2, 3, 4 (index 1-3) are Pro-only.
+                        if (!isPro_ && i > 0) {
+                            if (showUpgradeDialog()) {
+                                // Activated — re-enable format combo and update title.
+                                controlBar_.enableFormatCombo(true);
+                                SetWindowTextA(hwnd_, "Opiqo \u2014 Pro Version");
+                            }
+                            return 0;
+                        }
                         std::string uri;
                         if (PluginDialog::showModal(hwnd_, &liveEngine_, &uri, uiFont_)) {
                             liveEngine_.addPlugin(i + 1, uri);

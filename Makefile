@@ -454,6 +454,30 @@ src/win32/SettingsDialog.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/SettingsDialog.cpp.s
 .PHONY : src/win32/SettingsDialog.cpp.s
 
+src/win32/UpgradeDialog.obj: src/win32/UpgradeDialog.cpp.obj
+.PHONY : src/win32/UpgradeDialog.obj
+
+# target to build an object file
+src/win32/UpgradeDialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/UpgradeDialog.cpp.obj
+.PHONY : src/win32/UpgradeDialog.cpp.obj
+
+src/win32/UpgradeDialog.i: src/win32/UpgradeDialog.cpp.i
+.PHONY : src/win32/UpgradeDialog.i
+
+# target to preprocess a source file
+src/win32/UpgradeDialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/UpgradeDialog.cpp.i
+.PHONY : src/win32/UpgradeDialog.cpp.i
+
+src/win32/UpgradeDialog.s: src/win32/UpgradeDialog.cpp.s
+.PHONY : src/win32/UpgradeDialog.s
+
+# target to generate assembly for a file
+src/win32/UpgradeDialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/UpgradeDialog.cpp.s
+.PHONY : src/win32/UpgradeDialog.cpp.s
+
 src/win32/WasapiDeviceEnum.obj: src/win32/WasapiDeviceEnum.cpp.obj
 .PHONY : src/win32/WasapiDeviceEnum.obj
 
@@ -559,6 +583,9 @@ help:
 	@echo "... src/win32/SettingsDialog.obj"
 	@echo "... src/win32/SettingsDialog.i"
 	@echo "... src/win32/SettingsDialog.s"
+	@echo "... src/win32/UpgradeDialog.obj"
+	@echo "... src/win32/UpgradeDialog.i"
+	@echo "... src/win32/UpgradeDialog.s"
 	@echo "... src/win32/WasapiDeviceEnum.obj"
 	@echo "... src/win32/WasapiDeviceEnum.i"
 	@echo "... src/win32/WasapiDeviceEnum.s"

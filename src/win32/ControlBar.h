@@ -35,6 +35,9 @@ public:
     // Enables or disables the record toggle button.
     void enableRecordButton(bool enable);
 
+    // Enables or disables the format dropdown (disabled in demo mode).
+    void enableFormatCombo(bool enable);
+
     // Repositions and resizes all child controls to fit new bounds.
     void resize(const RECT& bounds);
 

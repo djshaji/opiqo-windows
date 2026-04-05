@@ -138,6 +138,11 @@ void ControlBar::enableRecordButton(bool enable) {
         EnableWindow(recordButton_, enable ? TRUE : FALSE);
 }
 
+void ControlBar::enableFormatCombo(bool enable) {
+    if (formatCombo_)
+        EnableWindow(formatCombo_, enable ? TRUE : FALSE);
+}
+
 void ControlBar::resize(const RECT& bounds) {
     if (!hwnd_) return;
     const int w = bounds.right - bounds.left;
