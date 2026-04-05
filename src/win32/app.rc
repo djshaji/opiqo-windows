@@ -103,10 +103,6 @@ BEGIN
     BEGIN
         MENUITEM "Open Settings", IDM_SETTINGS_OPEN
     END
-    POPUP "&Debug"
-    BEGIN
-        MENUITEM "Stress Test: Plugin Load/Unload", IDM_DEBUG_STRESS_TEST
-    END
     POPUP "&Help"
     BEGIN
         MENUITEM "&Upgrade to Pro Version...", IDM_HELP_UPGRADE

@@ -67,6 +67,12 @@ add_executable(opiqo WIN32
 # Convenience alias so users can run `cmake --build <dir> --target default`.
 add_custom_target(default DEPENDS opiqo)
 
+# Package bin/ directory into opiqo.zip.
+add_custom_target(zip
+    COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_SOURCE_DIR}/bin" zip -r "${CMAKE_SOURCE_DIR}/opiqo.zip" .
+    COMMENT "Creating opiqo.zip from bin/"
+)
+
 target_include_directories(opiqo PRIVATE
     src
     include
