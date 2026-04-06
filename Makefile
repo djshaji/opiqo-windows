@@ -155,6 +155,14 @@ zip/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/zip.dir/build.make CMakeFiles/zip.dir/build
 .PHONY : zip/fast
 
+app.res: app.rc.res
+.PHONY : app.res
+
+# target to build an object file
+app.rc.res:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/app.rc.res
+.PHONY : app.rc.res
+
 src/FileWriter.obj: src/FileWriter.cpp.obj
 .PHONY : src/FileWriter.obj
 
@@ -515,14 +523,6 @@ src/win32/WasapiDeviceEnum.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/WasapiDeviceEnum.cpp.s
 .PHONY : src/win32/WasapiDeviceEnum.cpp.s
 
-src/win32/app.res: src/win32/app.rc.res
-.PHONY : src/win32/app.res
-
-# target to build an object file
-src/win32/app.rc.res:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/opiqo.dir/build.make CMakeFiles/opiqo.dir/src/win32/app.rc.res
-.PHONY : src/win32/app.rc.res
-
 src/win32/win_logging.obj: src/win32/win_logging.cpp.obj
 .PHONY : src/win32/win_logging.obj
 
@@ -558,6 +558,7 @@ help:
 	@echo "... default"
 	@echo "... zip"
 	@echo "... opiqo"
+	@echo "... app.res"
 	@echo "... src/FileWriter.obj"
 	@echo "... src/FileWriter.i"
 	@echo "... src/FileWriter.s"
@@ -603,7 +604,6 @@ help:
 	@echo "... src/win32/WasapiDeviceEnum.obj"
 	@echo "... src/win32/WasapiDeviceEnum.i"
 	@echo "... src/win32/WasapiDeviceEnum.s"
-	@echo "... src/win32/app.res"
 	@echo "... src/win32/win_logging.obj"
 	@echo "... src/win32/win_logging.i"
 	@echo "... src/win32/win_logging.s"

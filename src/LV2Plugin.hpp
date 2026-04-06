@@ -330,7 +330,13 @@ public:
         }
 
         // Prefer a real filesystem path here, not a content:// URI.
-        if (abs_path[0] != '/') {
+#if defined(_WIN32)
+        const bool is_abs = (std::strlen(abs_path) >= 2 && abs_path[1] == ':') ||
+                            (abs_path[0] == '\\' && abs_path[1] == '\\');
+#else
+        const bool is_abs = (abs_path[0] == '/');
+#endif
+        if (!is_abs) {
             LOGE("send_path_parameter: expected absolute filesystem path, got: %s", abs_path);
             return;
         }
@@ -386,6 +392,15 @@ public:
 
         // process() wraps queued bytes as the event body, so store only the atom body.
         const uint8_t* body = reinterpret_cast<const uint8_t*>(LV2_ATOM_BODY(atom));
+
+        // Guard: warn early if the payload would be dropped in process() due to buffer overflow.
+        const uint32_t required_space = static_cast<uint32_t>(sizeof(LV2_Atom_Sequence_Body))
+            + static_cast<uint32_t>(sizeof(LV2_Atom_Event)) + atom->size;
+        if (required_space > target->atom_buf_size) {
+            LOGE("send_path_parameter: path payload (%u bytes) exceeds atom buffer (%u bytes) for port '%s' — message will be dropped in process()",
+                 required_space, target->atom_buf_size, target->symbol.c_str());
+        }
+
         {
             std::lock_guard<std::mutex> lock(target->atom_state->ui_to_dsp_mutex);
             target->atom_state->ui_to_dsp.assign(body, body + atom->size);
@@ -410,7 +425,7 @@ public:
           max_block_length_(max_block_length), instance_(nullptr),
           audio_class_(nullptr), control_class_(nullptr), atom_class_(nullptr),
           input_class_(nullptr), rsz_minimumSize_(nullptr),
-          required_atom_size_(8192), shutdown_(false) {
+          required_atom_size_(65536), shutdown_(false) {
     }
 
     // Constructor: resolve plugin by URI from an existing Lilv world
@@ -419,7 +434,7 @@ public:
           max_block_length_(max_block_length), instance_(nullptr),
           audio_class_(nullptr), control_class_(nullptr), atom_class_(nullptr),
           input_class_(nullptr), rsz_minimumSize_(nullptr),
-          required_atom_size_(8192), shutdown_(false) {
+          required_atom_size_(65536), shutdown_(false) {
         if (world_ && plugin_uri) {
             const LilvPlugins* plugins = lilv_world_get_all_plugins(world_);
             LilvNode* uri = lilv_new_uri(world_, plugin_uri);

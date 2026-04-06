@@ -538,33 +538,8 @@ void LiveEffectEngine::setFilePath (int position, std::string uri, std::string p
             return;
     }
 
-    int port = -1 ;
-    for (const auto& prt : p->ports_) {
-        if (prt.is_atom && prt.is_input) {
-            port = prt.index;
-            break;
-        }
-    }
-
-    if (port == -1) {
-        LOGE("Plugin %d does not have an input atom port", position);
-        return;
-    } else {
-        LOGD ("Plugin %d atom input port found at index %d", position, port);
-    }
-
     p->send_path_parameter(uri.c_str (), path.c_str ());
-    std::vector<uint8_t> msg;
-    if (p->readAtomMessage("notify", msg)) {
-        std::string path, property;
-        if (p->extractPathFromAtomMessage(msg.data(), msg.size(), path, &property)) {
-            LOGD("Got file path '%s' for property '%s'", path.c_str(), property.c_str());
-        } else {
-            LOGE("Failed to extract file path from atom message for plugin");
-        }
-    } else {
-        LOGE ("Failed to read atom message from plugin after setting file path");
-    }
+    LOGD("setFilePath: queued path '%s' for property '%s' on plugin %d; plugin will receive it on the next process() cycle", path.c_str(), uri.c_str(), position);
 
 }
 

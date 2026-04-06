@@ -15,6 +15,37 @@ endif()
 
 project(opiqo LANGUAGES C CXX)
 
+# ---------------------------------------------------------------------------
+# Build number: git commit count + 1
+# ---------------------------------------------------------------------------
+find_package(Git QUIET)
+if(Git_FOUND OR GIT_EXECUTABLE)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-list --count HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE GIT_COMMIT_COUNT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE GIT_COUNT_RESULT
+    )
+endif()
+if(NOT GIT_COMMIT_COUNT OR NOT GIT_COUNT_RESULT EQUAL 0)
+    set(GIT_COMMIT_COUNT 0)
+endif()
+math(EXPR GIT_BUILD_NUMBER "${GIT_COMMIT_COUNT} + 1")
+message(STATUS "Build number: ${GIT_BUILD_NUMBER} (${GIT_COMMIT_COUNT} commits + 1)")
+
+# Generate app.rc from template, substituting @GIT_BUILD_NUMBER@
+configure_file(
+    "${CMAKE_SOURCE_DIR}/src/win32/app.rc.in"
+    "${CMAKE_BINARY_DIR}/app.rc"
+    @ONLY
+)
+
+# Tell windres where to find resource.h (src/win32/) when preprocessing the
+# generated app.rc which lives in the binary dir, not next to resource.h.
+set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I\"${CMAKE_SOURCE_DIR}/src/win32\"")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -56,7 +87,7 @@ set(WIN32_UI_SOURCES
     src/win32/WasapiDeviceEnum.cpp
     src/win32/win_logging.cpp
     src/main_win32.cpp
-    src/win32/app.rc
+    "${CMAKE_BINARY_DIR}/app.rc"
 )
 
 add_executable(opiqo WIN32
