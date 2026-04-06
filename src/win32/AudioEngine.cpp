@@ -6,6 +6,7 @@
 
 #include "AudioEngine.h"
 #include "../LiveEffectEngine.h"
+#include "../lv2_ringbuffer.h"
 
 // Speex resampler (resample.c compiled with OUTSIDE_SPEEX + RANDOM_PREFIX=opiqo).
 #define OUTSIDE_SPEEX
@@ -32,6 +33,10 @@ struct AudioEngine::Impl {
     IMMDeviceEnumerator* enumerator     = nullptr;
     IAudioClient*        captureClient  = nullptr;
     IAudioClient*        renderClient   = nullptr;
+    // IAudioClient3 (Windows 10 1607+): non-null when QueryInterface succeeds.
+    // Shares the same COM object as captureClient/renderClient (each AddRef'd).
+    IAudioClient3*       captureClient3 = nullptr;
+    IAudioClient3*       renderClient3  = nullptr;
     IAudioCaptureClient* captureService = nullptr;
     IAudioRenderClient*  renderService  = nullptr;
 
@@ -41,7 +46,8 @@ struct AudioEngine::Impl {
 
     // Synchronisation.
     HANDLE captureEvent = nullptr;
-    HANDLE renderEvent  = nullptr;
+    // renderEvent intentionally absent: render writes are capture-driven
+    // (polling), so event-driven mode on the render client is not used.
     HANDLE stopEvent    = nullptr;
 
     // Pre-allocated scratch buffers (sized at start(), reused in loop).
@@ -60,6 +66,12 @@ struct AudioEngine::Impl {
     // Stereo DSP output buffer (at renderFmt rate, 2-ch interleaved).
     std::vector<float> dspOutBuf;
 
+    // Lock-free ring buffer between DSP output and render write.
+    // Holds render-channel-count float samples (same layout as outBuf).
+    // Prevents processed frames from being discarded when the render
+    // client is temporarily full due to timing jitter.
+    lv2_ringbuffer_t* renderDrainRing = nullptr;
+
     // Pending device IDs written by start() before the audio thread launches.
     std::string inDeviceId;
     std::string outDeviceId;
@@ -70,6 +82,20 @@ struct AudioEngine::Impl {
     mutable std::mutex       errorMsgMutex;   // Guards errorMsg across threads.
     std::string              errorMsg;
     std::atomic<uint64_t>    dropouts { 0 };
+
+    // Combined stream latency (capture + render) in milliseconds.
+    // Written once by the audio thread after Initialize(); read-only thereafter.
+    std::atomic<double>      streamLatencyMs { 0.0 };
+
+    // Drift correction state.
+    // We accumulate render buffer fill (GetCurrentPadding) over a window of
+    // capture callbacks and periodically compare to the target fill.
+    // Over-fill → discard frames; under-fill → inject silence.
+    uint32_t driftPackets   = 0;    // packets seen in current window
+    uint64_t driftFillSum   = 0;    // sum of padding samples in window
+    uint32_t driftTarget    = 0;    // target fill in frames (set at start)
+    uint32_t driftPeriodFr  = 0;    // correction granularity in frames
+    static constexpr uint32_t kDriftWindow = 50; // packets between corrections
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +236,10 @@ uint64_t AudioEngine::dropoutCount() const {
     return impl_->dropouts.load(std::memory_order_relaxed);
 }
 
+double AudioEngine::streamLatencyMs() const {
+    return impl_->streamLatencyMs.load(std::memory_order_relaxed);
+}
+
 bool AudioEngine::start(int32_t sampleRate,
                         int32_t blockSize,
                         const std::string& inputDeviceId,
@@ -286,8 +316,14 @@ void AudioEngine::audioThreadProc() {
         return;
     }
 
+    // Activate an IAudioClient endpoint, optionally upgrading to IAudioClient3.
+    // In shared mode, tries Activate(IID_IAudioClient3) first (Windows 10 1607+).
+    // On success, *out points to the IAudioClient3 (valid as IAudioClient*) and
+    // *out3 holds the same pointer with an extra AddRef so each can be Released
+    // independently in releaseResources().  On failure, falls back to IAudioClient.
     auto activateClient = [&](const std::string& id, EDataFlow flow,
-                               IAudioClient** out) -> bool {
+                               IAudioClient** out,
+                               IAudioClient3** out3) -> bool {
         IMMDevice* dev = nullptr;
         HRESULT r;
         if (id.empty()) {
@@ -297,14 +333,30 @@ void AudioEngine::audioThreadProc() {
             r = impl_->enumerator->GetDevice(wid.c_str(), &dev);
         }
         if (FAILED(r)) return false;
+
+        // Attempt IAudioClient3 upgrade in shared mode (exclusive uses IAudioClient).
+        if (!impl_->exclusiveMode) {
+            IAudioClient3* c3 = nullptr;
+            if (SUCCEEDED(dev->Activate(__uuidof(IAudioClient3), CLSCTX_ALL,
+                                        nullptr,
+                                        reinterpret_cast<void**>(&c3)))) {
+                *out3 = c3;
+                *out  = c3;   // implicit upcast: IAudioClient3* → IAudioClient*
+                (*out)->AddRef(); // two references: one for *out, one for *out3
+                dev->Release();
+                return true;
+            }
+        }
+
+        // Fall back to plain IAudioClient (older Windows or exclusive mode).
         r = dev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                           reinterpret_cast<void**>(out));
         dev->Release();
         return SUCCEEDED(r);
     };
 
-    if (!activateClient(inId,  eCapture, &impl_->captureClient)
-     || !activateClient(outId, eRender,  &impl_->renderClient)) {
+    if (!activateClient(inId,  eCapture, &impl_->captureClient, &impl_->captureClient3)
+     || !activateClient(outId, eRender,  &impl_->renderClient,  &impl_->renderClient3)) {
         setErr("Failed to activate audio endpoints");
         impl_->state = AudioEngine::State::Error;
         releaseResources();
@@ -338,39 +390,80 @@ void AudioEngine::audioThreadProc() {
     // -----------------------------------------------------------------------
     // Initialise both clients in event-driven shared/exclusive mode
     // -----------------------------------------------------------------------
-    AUDCLNT_SHAREMODE shareMode = impl_->exclusiveMode
-        ? AUDCLNT_SHAREMODE_EXCLUSIVE
-        : AUDCLNT_SHAREMODE_SHARED;
-
-    // Exclusive mode requires a non-zero buffer duration equal to the device's
-    // minimum period. Shared mode accepts 0 (let the driver decide).
-    REFERENCE_TIME capturePeriod = 0;
-    REFERENCE_TIME renderPeriod  = 0;
-    if (impl_->exclusiveMode) {
+    // Helper: convert a blockSize (frames) to the nearest valid REFERENCE_TIME
+    // period >= the device minimum period.  REFERENCE_TIME is in 100ns units.
+    // For shared mode we pass the requested period as hnsBufferDuration so the
+    // OS selects the smallest integer-multiple of the fundamental period that
+    // fits blockSize frames.  For exclusive mode we must use the device minimum.
+    auto computePeriod = [&](IAudioClient* client, UINT32 sampleRate,
+                             bool exclusive) -> REFERENCE_TIME {
         REFERENCE_TIME defaultPeriod = 0, minPeriod = 0;
-        if (FAILED(impl_->captureClient->GetDevicePeriod(&defaultPeriod, &minPeriod))) {
-            setErr("GetDevicePeriod failed for capture");
-            impl_->state = AudioEngine::State::Error;
-            releaseResources();
-            return;
-        }
-        capturePeriod = minPeriod;
+        if (FAILED(client->GetDevicePeriod(&defaultPeriod, &minPeriod)))
+            return exclusive ? 0 : 0;  // fallback: let OS decide
 
-        defaultPeriod = 0; minPeriod = 0;
-        if (FAILED(impl_->renderClient->GetDevicePeriod(&defaultPeriod, &minPeriod))) {
-            setErr("GetDevicePeriod failed for render");
-            impl_->state = AudioEngine::State::Error;
-            releaseResources();
-            return;
-        }
-        renderPeriod = minPeriod;
-    }
+        if (exclusive)
+            return minPeriod;
 
-    hr = impl_->captureClient->Initialize(
-        shareMode,
-        AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-        capturePeriod, impl_->exclusiveMode ? capturePeriod : 0,
-        impl_->captureFmt, nullptr);
+        // Shared mode: convert blockSize to 100ns, round up to the next
+        // integer multiple of the fundamental period (== minPeriod).
+        if (sampleRate == 0 || impl_->blockSize <= 0)
+            return defaultPeriod;
+
+        // blockSize in 100ns units (avoid fp: multiply before divide).
+        const REFERENCE_TIME requested =
+            static_cast<REFERENCE_TIME>(impl_->blockSize) * 10000000LL
+            / static_cast<REFERENCE_TIME>(sampleRate);
+
+        // Clamp to [minPeriod, defaultPeriod].
+        if (requested <= minPeriod)  return minPeriod;
+        if (requested >= defaultPeriod) return defaultPeriod;
+
+        // Round up to the nearest integer multiple of minPeriod.
+        if (minPeriod > 0) {
+            const REFERENCE_TIME multiples =
+                (requested + minPeriod - 1) / minPeriod;
+            const REFERENCE_TIME snapped = multiples * minPeriod;
+            return snapped <= defaultPeriod ? snapped : defaultPeriod;
+        }
+        return requested;
+    };
+
+    const REFERENCE_TIME capturePeriod =
+        computePeriod(impl_->captureClient,
+                      impl_->captureFmt->nSamplesPerSec,
+                      impl_->exclusiveMode);
+    const REFERENCE_TIME renderPeriod =
+        computePeriod(impl_->renderClient,
+                      impl_->renderFmt->nSamplesPerSec,
+                      impl_->exclusiveMode);
+
+    // Lambda: initialise one client, preferring IAudioClient3 in shared mode.
+    // Falls back to IAudioClient::Initialize if IAudioClient3 is unavailable or
+    // if InitializeSharedAudioStream fails at runtime.
+    auto initClient = [&](IAudioClient* client, IAudioClient3* client3,
+                          WAVEFORMATEX* fmt, REFERENCE_TIME period,
+                          bool exclusive) -> HRESULT {
+        if (!exclusive && client3) {
+            // IAudioClient3 path: ask the engine for its minimum period in frames.
+            UINT32 defPer = 0, fundPer = 0, minPer = 0, maxPer = 0;
+            HRESULT r = client3->GetSharedModeEnginePeriod(
+                fmt, &defPer, &fundPer, &minPer, &maxPer);
+            if (SUCCEEDED(r))
+                r = client3->InitializeSharedAudioStream(
+                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                    minPer, fmt, nullptr);
+            if (SUCCEEDED(r)) return r;  // success — low-latency path
+            // Fall through to IAudioClient on any failure.
+        }
+        return client->Initialize(
+            exclusive ? AUDCLNT_SHAREMODE_EXCLUSIVE : AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            period, exclusive ? period : 0,
+            fmt, nullptr);
+    };
+
+    hr = initClient(impl_->captureClient, impl_->captureClient3,
+                    impl_->captureFmt, capturePeriod, impl_->exclusiveMode);
     if (FAILED(hr)) {
         setErr("IAudioClient::Initialize failed for capture");
         impl_->state = AudioEngine::State::Error;
@@ -378,11 +471,8 @@ void AudioEngine::audioThreadProc() {
         return;
     }
 
-    hr = impl_->renderClient->Initialize(
-        shareMode,
-        AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-        renderPeriod, impl_->exclusiveMode ? renderPeriod : 0,
-        impl_->renderFmt, nullptr);
+    hr = initClient(impl_->renderClient, impl_->renderClient3,
+                    impl_->renderFmt, renderPeriod, impl_->exclusiveMode);
     if (FAILED(hr)) {
         setErr("IAudioClient::Initialize failed for render");
         impl_->state = AudioEngine::State::Error;
@@ -390,7 +480,20 @@ void AudioEngine::audioThreadProc() {
         return;
     }
 
-    // Separate auto-reset events for capture and render.
+    // Query combined stream latency from both clients.
+    // GetStreamLatency() is only valid after Initialize() succeeds.
+    {
+        REFERENCE_TIME capLat = 0, renLat = 0;
+        impl_->captureClient->GetStreamLatency(&capLat);
+        impl_->renderClient->GetStreamLatency(&renLat);
+        // REFERENCE_TIME is in 100-nanosecond units; convert to milliseconds.
+        impl_->streamLatencyMs.store(
+            static_cast<double>(capLat + renLat) / 10000.0,
+            std::memory_order_relaxed);
+    }
+
+    // Capture uses an event-driven callback; render is polled from the capture
+    // callback (capture-driven duplex loop), so no render event is needed.
     impl_->captureEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!impl_->captureEvent) {
         setErr("CreateEvent failed for capture");
@@ -399,16 +502,7 @@ void AudioEngine::audioThreadProc() {
         return;
     }
 
-    impl_->renderEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!impl_->renderEvent) {
-        setErr("CreateEvent failed for render");
-        impl_->state = AudioEngine::State::Error;
-        releaseResources();
-        return;
-    }
-
     impl_->captureClient->SetEventHandle(impl_->captureEvent);
-    impl_->renderClient->SetEventHandle(impl_->renderEvent);
 
     // -----------------------------------------------------------------------
     // Get capture and render services
@@ -434,14 +528,27 @@ void AudioEngine::audioThreadProc() {
     }
 
     // -----------------------------------------------------------------------
-    // Pre-roll render buffer with silence
+    // Pre-roll render buffer with silence (one device period, not the full buffer)
+    // Pre-rolling the full buffer would add one full buffer period (~10 ms) of
+    // unnecessary startup latency; one period is sufficient to avoid the initial
+    // underrun glitch.
     // -----------------------------------------------------------------------
     UINT32 renderBufSize = 0;
     impl_->renderClient->GetBufferSize(&renderBufSize);
     {
+        REFERENCE_TIME defaultPeriod = 0, minPeriod = 0;
+        impl_->renderClient->GetDevicePeriod(&defaultPeriod, &minPeriod);
+        const REFERENCE_TIME period = impl_->exclusiveMode ? minPeriod : defaultPeriod;
+        UINT32 prerollFrames = renderBufSize; // fallback: full buffer if period unknown
+        if (period > 0) {
+            prerollFrames = static_cast<UINT32>(
+                period * impl_->renderFmt->nSamplesPerSec / 10000000LL);
+            if (prerollFrames > renderBufSize)
+                prerollFrames = renderBufSize;
+        }
         BYTE* silenceData = nullptr;
-        if (SUCCEEDED(impl_->renderService->GetBuffer(renderBufSize, &silenceData)))
-            impl_->renderService->ReleaseBuffer(renderBufSize,
+        if (SUCCEEDED(impl_->renderService->GetBuffer(prerollFrames, &silenceData)))
+            impl_->renderService->ReleaseBuffer(prerollFrames,
                                                 AUDCLNT_BUFFERFLAGS_SILENT);
     }
 
@@ -483,13 +590,48 @@ void AudioEngine::audioThreadProc() {
             return;
         }
         speex_resampler_skip_zeros(impl_->captureResampler);
-        // Max output frames per capture packet, with a small margin for
-        // resampler start-up latency.
-        UINT32 maxOut = captureBufSize
-            * impl_->renderFmt->nSamplesPerSec
-            / impl_->captureFmt->nSamplesPerSec + 128;
+        // Size the output buffer to the worst-case resampled frame count:
+        // - Ceiling of (captureBufSize * outRate / inRate) for the ratio term.
+        // - Plus the resampler's own output-side filter latency (depends on
+        //   quality level and rate ratio — not a fixed constant).
+        // - Plus one extra capture period as a safety margin for timing jitter.
+        const spx_uint32_t resamplerLatency =
+            speex_resampler_get_output_latency(impl_->captureResampler);
+        const UINT32 ratioCeil =
+            static_cast<UINT32>(
+                (static_cast<uint64_t>(captureBufSize)
+                 * impl_->renderFmt->nSamplesPerSec
+                 + impl_->captureFmt->nSamplesPerSec - 1)
+                / impl_->captureFmt->nSamplesPerSec);
+        const UINT32 maxOut = ratioCeil + resamplerLatency + captureBufSize;
         impl_->resampledBuf.assign(maxOut * 2, 0.f);
     }
+
+    // Allocate the render drain ring buffer — sized for 4 render periods so
+    // timing jitter never causes processed frames to be discarded.
+    // lv2_ringbuffer requires a power-of-2 byte size.
+    {
+        const size_t drainBytes = static_cast<size_t>(4)
+            * std::max(captureBufSize, renderBufSize)
+            * renChannels * sizeof(float);
+        size_t ringSize = 1;
+        while (ringSize < drainBytes) ringSize <<= 1;
+        impl_->renderDrainRing = lv2_ringbuffer_create(ringSize);
+        if (!impl_->renderDrainRing) {
+            setErr("lv2_ringbuffer_create failed for render drain buffer");
+            impl_->state = AudioEngine::State::Error;
+            releaseResources();
+            return;
+        }
+    }
+
+    // Initialise drift-correction state.
+    // Target: keep render buffer at ~one device period ahead (low latency).
+    // Correction granularity: one capture packet.
+    impl_->driftTarget   = std::max(captureBufSize, UINT32(1));
+    impl_->driftPeriodFr = captureBufSize;
+    impl_->driftPackets  = 0;
+    impl_->driftFillSum  = 0;
 
     // -----------------------------------------------------------------------
     // Start streams
@@ -529,6 +671,23 @@ void AudioEngine::audioThreadProc() {
 bool AudioEngine::runLoop() {
     HANDLE events[2] = { impl_->captureEvent, impl_->stopEvent };
 
+    // Fast-path flags: constant for the entire session.
+    // inputFastPath:  capture is already stereo float and no SRC needed —
+    //                 copy WASAPI buffer directly to stereoBuf, skipping inBuf.
+    // outputFastPath: render is stereo float — push dspOutBuf directly to the
+    //                 drain ring, skipping the outBuf upmix intermediate.
+    const bool inputFastPath =
+        (impl_->captureFmt->nChannels == 2)
+        && isFloatFormat(impl_->captureFmt)
+        && !impl_->captureResampler;
+    const bool outputFastPath =
+        (impl_->renderFmt->nChannels == 2)
+        && isFloatFormat(impl_->renderFmt);
+
+    // Cache buffer size — constant after Initialize(), no need to query per packet.
+    UINT32 renderBufSize = 0;
+    impl_->renderClient->GetBufferSize(&renderBufSize);
+
     while (true) {
         DWORD wait = WaitForMultipleObjects(2, events, FALSE, 200 /*ms timeout*/);
 
@@ -556,31 +715,54 @@ bool AudioEngine::runLoop() {
                 &captureData, &numFrames, &captureFlags, nullptr, nullptr);
             if (FAILED(hr)) return false;
 
-            UINT32 capChannels = impl_->captureFmt->nChannels;
-            UINT32 renChannels = impl_->renderFmt->nChannels;
+            // Hoist into const locals so the compiler sees loop-invariant values
+            // and can eliminate the per-iteration branches in the downmix/upmix loops.
+            const UINT32 capChannels = impl_->captureFmt->nChannels;
+            const UINT32 renChannels = impl_->renderFmt->nChannels;
 
             bool silent = (captureFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
 
             if (captureFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
                 impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
 
-            if (silent) {
-                std::fill(impl_->inBuf.begin(),
-                          impl_->inBuf.begin() + numFrames * capChannels, 0.f);
+            // --- Input: convert capture data → stereoBuf ---
+            if (inputFastPath) {
+                // Fast path: capture is already stereo float.
+                // Copy directly to stereoBuf, skipping inBuf entirely.
+                if (silent)
+                    std::fill(impl_->stereoBuf.begin(),
+                              impl_->stereoBuf.begin() + numFrames * 2, 0.f);
+                else
+                    std::memcpy(impl_->stereoBuf.data(), captureData,
+                                numFrames * 2 * sizeof(float));
             } else {
-                toFloat(captureData, numFrames, capChannels,
-                        impl_->captureFmt, impl_->inBuf.data());
+                // General path: convert to inBuf first, then downmix.
+                if (silent)
+                    std::fill(impl_->inBuf.begin(),
+                              impl_->inBuf.begin() + numFrames * capChannels, 0.f);
+                else
+                    toFloat(captureData, numFrames, capChannels,
+                            impl_->captureFmt, impl_->inBuf.data());
             }
 
             impl_->captureService->ReleaseBuffer(numFrames);
 
-            // Always downmix capture to stereo (2-ch interleaved, capture rate).
-            for (UINT32 f = 0; f < numFrames; ++f) {
-                impl_->stereoBuf[f * 2 + 0] =
-                    (capChannels >= 1) ? impl_->inBuf[f * capChannels + 0] : 0.f;
-                impl_->stereoBuf[f * 2 + 1] =
-                    (capChannels >= 2) ? impl_->inBuf[f * capChannels + 1]
-                                      : impl_->stereoBuf[f * 2];
+            if (!inputFastPath) {
+                // Downmix capture to stereo (2-ch interleaved, capture rate).
+                if (capChannels >= 2) {
+                    for (UINT32 f = 0; f < numFrames; ++f) {
+                        impl_->stereoBuf[f * 2 + 0] = impl_->inBuf[f * capChannels + 0];
+                        impl_->stereoBuf[f * 2 + 1] = impl_->inBuf[f * capChannels + 1];
+                    }
+                } else if (capChannels == 1) {
+                    for (UINT32 f = 0; f < numFrames; ++f) {
+                        impl_->stereoBuf[f * 2 + 0] = impl_->inBuf[f];
+                        impl_->stereoBuf[f * 2 + 1] = impl_->inBuf[f];
+                    }
+                } else {
+                    std::fill(impl_->stereoBuf.begin(),
+                              impl_->stereoBuf.begin() + numFrames * 2, 0.f);
+                }
             }
 
             // Optionally resample capture data to the render device's rate.
@@ -607,77 +789,144 @@ bool AudioEngine::runLoop() {
                             dspFrames * 2 * sizeof(float));
             }
 
-            // Upmix stereo output to render channel count.
-            for (UINT32 f = 0; f < dspFrames; ++f) {
-                for (UINT32 c = 0; c < renChannels; ++c) {
-                    impl_->outBuf[f * renChannels + c] =
-                        (c < 2) ? impl_->dspOutBuf[f * 2 + c] : 0.f;
+            // --- Output: upmix / push to drain ring ---
+            if (outputFastPath) {
+                // Fast path: render is stereo float.
+                // Push dspOutBuf directly into the drain ring, skipping outBuf.
+                const size_t pushBytes = static_cast<size_t>(dspFrames) * 2 * sizeof(float);
+                const size_t written = lv2_ringbuffer_write(
+                    impl_->renderDrainRing,
+                    reinterpret_cast<const char*>(impl_->dspOutBuf.data()),
+                    pushBytes);
+                if (written < pushBytes)
+                    impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                // General path: upmix stereo → renChannels, then push outBuf.
+                for (UINT32 f = 0; f < dspFrames; ++f) {
+                    for (UINT32 c = 0; c < renChannels; ++c) {
+                        impl_->outBuf[f * renChannels + c] =
+                            (c < 2) ? impl_->dspOutBuf[f * 2 + c] : 0.f;
+                    }
                 }
+                const size_t pushBytes =
+                    static_cast<size_t>(dspFrames) * renChannels * sizeof(float);
+                const size_t written = lv2_ringbuffer_write(
+                    impl_->renderDrainRing,
+                    reinterpret_cast<const char*>(impl_->outBuf.data()),
+                    pushBytes);
+                if (written < pushBytes)
+                    impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
             }
 
-            // Write to render buffer.
-            // If the render buffer is fuller than expected (e.g. Wine/WASAPI
-            // emulation timing jitter), write only what fits this period and
-            // carry any excess frames into the next callback via silence padding
-            // rather than discarding them — this avoids render-side underruns.
-            UINT32 padding = 0;
-            impl_->renderClient->GetCurrentPadding(&padding);
-            UINT32 renderBufSize = 0;
-            impl_->renderClient->GetBufferSize(&renderBufSize);
-            UINT32 available = renderBufSize - padding;
+            // Drain as many frames as the render client will accept.
+            {
+                UINT32 padding = 0;
+                impl_->renderClient->GetCurrentPadding(&padding);
+                const UINT32 available = renderBufSize - padding;
 
-            if (available == 0) {
-                // Render buffer is full — count as a dropout and skip.
-                impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
-                continue;
-            }
+                // --- Drift correction (fill-level feedback) ---
+                // Accumulate fill samples and every kDriftWindow packets apply
+                // a one-packet correction if the average deviates significantly
+                // from the target fill level.
+                impl_->driftFillSum += padding;
+                ++impl_->driftPackets;
+                if (impl_->driftPackets >= Impl::kDriftWindow) {
+                    const uint32_t avgFill =
+                        static_cast<uint32_t>(impl_->driftFillSum / impl_->driftPackets);
+                    impl_->driftPackets = 0;
+                    impl_->driftFillSum = 0;
 
-            UINT32 toWrite = std::min(dspFrames, available);
+                    const uint32_t thresh = impl_->driftPeriodFr;
+                    const size_t frameBytes =
+                        static_cast<size_t>(renChannels) * sizeof(float);
 
-            BYTE* renderData = nullptr;
-            hr = impl_->renderService->GetBuffer(toWrite, &renderData);
-            if (FAILED(hr)) {
-                if (hr == AUDCLNT_E_DEVICE_INVALIDATED) return false;
-                continue;
-            }
-
-            fromFloat(impl_->outBuf.data(), toWrite, renChannels,
-                      impl_->renderFmt, renderData);
-            impl_->renderService->ReleaseBuffer(toWrite, 0);
-
-            // If the render device accepted fewer frames than we processed,
-            // pad the render buffer with silence for the remainder so the
-            // next period starts with a full buffer.
-            if (toWrite < dspFrames) {
-                UINT32 gap = dspFrames - toWrite;
-                UINT32 gapAvail = renderBufSize - (padding + toWrite);
-                UINT32 silFrames = std::min(gap, gapAvail);
-                if (silFrames > 0) {
-                    BYTE* silData = nullptr;
-                    if (SUCCEEDED(impl_->renderService->GetBuffer(silFrames, &silData)))
-                        impl_->renderService->ReleaseBuffer(silFrames,
-                                                            AUDCLNT_BUFFERFLAGS_SILENT);
+                    if (avgFill > impl_->driftTarget + thresh) {
+                        // Render buffer filling faster than expected:
+                        // capture clock slightly faster than render.
+                        // Discard one packet's worth of frames from the ring.
+                        const size_t discardBytes =
+                            static_cast<size_t>(impl_->driftPeriodFr) * frameBytes;
+                        const size_t canDiscard =
+                            std::min(discardBytes,
+                                     lv2_ringbuffer_read_space(impl_->renderDrainRing));
+                        if (canDiscard > 0) {
+                            // Advance the read pointer without copying.
+                            lv2_ringbuffer_read(impl_->renderDrainRing, nullptr, canDiscard);
+                            impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    } else if (impl_->driftTarget > thresh &&
+                               avgFill + thresh < impl_->driftTarget) {
+                        // Render buffer draining faster than expected:
+                        // render clock slightly faster than capture.
+                        // Inject one packet of silence directly to the render client.
+                        UINT32 silPadding = 0;
+                        impl_->renderClient->GetCurrentPadding(&silPadding);
+                        const UINT32 silAvail = renderBufSize - silPadding;
+                        const UINT32 silFrames =
+                            std::min(impl_->driftPeriodFr, silAvail);
+                        if (silFrames > 0) {
+                            BYTE* silData = nullptr;
+                            if (SUCCEEDED(impl_->renderService->GetBuffer(
+                                    silFrames, &silData)))
+                                impl_->renderService->ReleaseBuffer(
+                                    silFrames, AUDCLNT_BUFFERFLAGS_SILENT);
+                        }
+                    }
                 }
-                impl_->dropouts.fetch_add(1, std::memory_order_relaxed);
+
+                const size_t frameBytes =
+                    static_cast<size_t>(renChannels) * sizeof(float);
+                const size_t ringBytes =
+                    lv2_ringbuffer_read_space(impl_->renderDrainRing);
+                const UINT32 ringFrames =
+                    static_cast<UINT32>(ringBytes / frameBytes);
+                const UINT32 toWrite = std::min(ringFrames, available);
+
+                if (toWrite > 0) {
+                    // Read ring → outBuf (reuse existing scratch), then convert.
+                    lv2_ringbuffer_read(
+                        impl_->renderDrainRing,
+                        reinterpret_cast<char*>(impl_->outBuf.data()),
+                        static_cast<size_t>(toWrite) * frameBytes);
+
+                    BYTE* renderData = nullptr;
+                    hr = impl_->renderService->GetBuffer(toWrite, &renderData);
+                    if (FAILED(hr)) {
+                        if (hr == AUDCLNT_E_DEVICE_INVALIDATED) return false;
+                    } else {
+                        fromFloat(impl_->outBuf.data(), toWrite, renChannels,
+                                  impl_->renderFmt, renderData);
+                        impl_->renderService->ReleaseBuffer(toWrite, 0);
+                    }
+                }
             }
         }
     }
 }
 
 void AudioEngine::releaseResources() {
+    if (impl_->renderDrainRing) {
+        lv2_ringbuffer_free(impl_->renderDrainRing);
+        impl_->renderDrainRing = nullptr;
+    }
     if (impl_->captureResampler) {
         speex_resampler_destroy(impl_->captureResampler);
         impl_->captureResampler = nullptr;
     }
     if (impl_->captureService) { impl_->captureService->Release(); impl_->captureService = nullptr; }
     if (impl_->renderService)  { impl_->renderService->Release();  impl_->renderService  = nullptr; }
+    // Release IAudioClient3 *before* captureClient/renderClient.
+    // Both pointers may refer to the same COM object (AddRef'd twice in activateClient);
+    // releasing the IAudioClient3 ref first brings the count to 1, then the
+    // IAudioClient release brings it to 0 and destroys the object.
+    if (impl_->captureClient3) { impl_->captureClient3->Release(); impl_->captureClient3 = nullptr; }
+    if (impl_->renderClient3)  { impl_->renderClient3->Release();  impl_->renderClient3  = nullptr; }
     if (impl_->captureClient)  { impl_->captureClient->Release();  impl_->captureClient  = nullptr; }
     if (impl_->renderClient)   { impl_->renderClient->Release();   impl_->renderClient   = nullptr; }
     if (impl_->enumerator)     { impl_->enumerator->Release();     impl_->enumerator     = nullptr; }
     if (impl_->captureFmt)     { CoTaskMemFree(impl_->captureFmt); impl_->captureFmt     = nullptr; }
     if (impl_->renderFmt)      { CoTaskMemFree(impl_->renderFmt);  impl_->renderFmt      = nullptr; }
     if (impl_->captureEvent)   { CloseHandle(impl_->captureEvent); impl_->captureEvent   = nullptr; }
-    if (impl_->renderEvent)    { CloseHandle(impl_->renderEvent);  impl_->renderEvent    = nullptr; }
     if (impl_->stopEvent)      { CloseHandle(impl_->stopEvent);    impl_->stopEvent      = nullptr; }
 }
 

@@ -49,6 +49,11 @@ public:
     // Number of WASAPI DATA_DISCONTINUITY (dropout) events since last start().
     uint64_t    dropoutCount() const;
 
+    // Combined WASAPI stream latency reported by both clients after start().
+    // Sum of capture + render GetStreamLatency() values, in milliseconds.
+    // Returns 0 if not yet available (stream not running or query failed).
+    double      streamLatencyMs() const;
+
 private:
     // Audio-thread entry point.
     void audioThreadProc();
