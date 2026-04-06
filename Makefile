@@ -142,6 +142,19 @@ default/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/default.dir/build.make CMakeFiles/default.dir/build
 .PHONY : default/fast
 
+#=============================================================================
+# Target rules for targets named zip
+
+# Build rule for target.
+zip: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 zip
+.PHONY : zip
+
+# fast build rule for target.
+zip/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/zip.dir/build.make CMakeFiles/zip.dir/build
+.PHONY : zip/fast
+
 src/FileWriter.obj: src/FileWriter.cpp.obj
 .PHONY : src/FileWriter.obj
 
@@ -543,6 +556,7 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... default"
+	@echo "... zip"
 	@echo "... opiqo"
 	@echo "... src/FileWriter.obj"
 	@echo "... src/FileWriter.i"

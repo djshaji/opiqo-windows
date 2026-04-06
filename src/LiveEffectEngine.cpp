@@ -227,6 +227,11 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
 
     LILV_FOREACH (plugins, i, plugins) {
         const LilvPlugin* p = lilv_plugins_get(plugins, i);
+        if (p == nullptr) {
+            LOGE("[initPlugins] Failed to get plugin at index %d", i);
+            continue;
+        }
+
         if (isNoLoadPlugin(lilv_node_as_string(lilv_plugin_get_uri(p)))) {
             LOGD("[initPlugins] Skipping no-load plugin %s", lilv_node_as_uri(lilv_plugin_get_uri(p)));
             continue;
@@ -234,20 +239,46 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
 
         pluginCount++;
 //        LOGD("[plugin] %s\n", lilv_node_as_uri(lilv_plugin_get_uri(p)));
+        LilvNode* nameNode   = lilv_plugin_get_name(p);
+        LilvNode* authorNode = lilv_plugin_get_author_name(p);
+        const LilvNode* uriNode = lilv_plugin_get_uri(p);
+        if (nameNode == nullptr || uriNode == nullptr) {
+            LOGE("[initPlugins] Plugin at index %d has no name or URI, skipping", i);
+            lilv_node_free(nameNode);
+            lilv_node_free(authorNode);
+            continue;
+        }
+        const char * name   = lilv_node_as_string(nameNode);
+        const char * uri    = lilv_node_as_string(uriNode);
+        const char * author = (authorNode != nullptr) ? lilv_node_as_string(authorNode) : "";
+        if (name == nullptr || uri == nullptr) {
+            LOGE("[initPlugins] Failed to get name or uri for plugin at index %d", i);
+            lilv_node_free(nameNode);
+            lilv_node_free(authorNode);
+            continue;
+        }
+
+        int portCount = lilv_plugin_get_num_ports(p);
+        LOGD ("[%s] Plugin URI: %s\n", name, uri);
         json info = {
-                {"name", lilv_node_as_string(lilv_plugin_get_name(p))},
-                {"uri", lilv_node_as_string(lilv_plugin_get_uri(p))},
-                {"author", lilv_node_as_string(lilv_plugin_get_author_name(p))},
-                {"ports", lilv_plugin_get_num_ports(p)}};
+                {"name", name},
+                {"uri", uri},
+                {"author", author},
+                {"ports", portCount}};
 
         info["port"] = {};
-        for (int index = 0 ; index < lilv_plugin_get_num_ports(p); index++) {
+        for (int index = 0 ; index < portCount; index++) {
             const LilvPort* port = lilv_plugin_get_port_by_index(p, index);
 //            LOGD ("[%s] Port %d: %s\n", lilv_node_as_string(lilv_plugin_get_name(p)),
 //                  index, lilv_node_as_string(lilv_port_get_symbol(p, port)));
             info ["port"][index] = {};
             info ["port"][index]["index"] = index ;
-            info ["port"][index]["name"] = lilv_node_as_string(lilv_port_get_name(p, port));
+            const char * pName = lilv_node_as_string(lilv_port_get_name(p, port));
+            if (pName == nullptr) {
+                LOGE("[initPlugins] Failed to get name for port %d of plugin %s", index, name);
+                continue;
+            }
+            info ["port"][index]["name"] = pName;
             if (lilv_port_is_a(p, port, audio_class_)) {
 //                LOGD("[%s] Port %d is an audio port\n", lilv_node_as_string(lilv_plugin_get_name(p)), index);
                 info["port"][index]["type"] = "audio";
@@ -282,9 +313,11 @@ std::string LiveEffectEngine::initPlugins (std::string dir) {
                 lilv_port_get_range(p, port, reinterpret_cast<LilvNode **>(&def),
                                     reinterpret_cast<LilvNode **>(&min),
                                     reinterpret_cast<LilvNode **>(&max));
-                info["port"][index]["min"] = lilv_node_as_float(min) ;
-                info["port"][index]["max"] = lilv_node_as_string(max);
-                info["port"][index]["default"] = lilv_node_as_string(def);
+                info["port"][index]["min"] = (min != nullptr) ? lilv_node_as_float(min) : 0.0f;
+                const char* maxStr = (max != nullptr) ? lilv_node_as_string(max) : nullptr;
+                const char* defStr = (def != nullptr) ? lilv_node_as_string(def) : nullptr;
+                info["port"][index]["max"] = (maxStr != nullptr) ? maxStr : "";
+                info["port"][index]["default"] = (defStr != nullptr) ? defStr : "";
 
             }
             else if (lilv_port_is_a(p, port, atom_class_)) {
